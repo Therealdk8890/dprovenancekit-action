@@ -23,13 +23,13 @@ jobs:
           python -m pip install --disable-pip-version-check dprovenancekit
           python smoke/record_runs.py
 
-      - name: Gate candidate against golden (the published action path)
+      - name: Gate candidate against golden (context selection, the published action path)
         id: gate
         uses: Therealdk8890/dprovenancekit-action@v1
         with:
           db-path: smoke-traces.sqlite
-          golden-run-id: ${{ env.GOLDEN_RUN_ID }}
-          candidate-run-id: ${{ env.CANDIDATE_RUN_ID }}
+          golden-context: golden
+          candidate-context: candidate
           comment: "false"
 
       - name: Assert the gate passed
