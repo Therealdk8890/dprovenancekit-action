@@ -5,9 +5,10 @@ This action gates your pull requests on that record: it compares a candidate
 run against a golden baseline, fails the check when the agent's reasoning
 regresses — a dropped verification step, a looping tool, a reordered execution
 path — and posts a sticky PR comment with the diff. It wraps the server-less
-`dprovenancekit gate` CLI, so it runs entirely inside your runner: no hosted
-backend, no API keys, no third-party dependencies beyond the Python standard
-library.
+`dprovenancekit gate` CLI, so gating runs entirely inside your runner: no hosted
+backend and no API keys. The action installs the open-source `dprovenancekit`
+package from PyPI; the wrapper scripts it ships depend only on the Python
+standard library.
 
 ## Usage
 
@@ -49,7 +50,7 @@ jobs:
 | `candidate-db` | `db-path` | SQLite db holding the candidate run, if separate. |
 | `golden-run-id` | `""` | Run id of the golden (known-good) trace. Provide this **or** `golden-context`. |
 | `candidate-run-id` | `""` | Run id of the candidate trace to gate. Provide this **or** `candidate-context`. |
-| `golden-context` | `""` | Select the newest run with this context id as the golden — no run-id extraction needed. Cloud sync (`dprov-api-key`) pulls by run id and still requires `golden-run-id`; the action fails loudly if only a context is given. |
+| `golden-context` | `""` | Select the newest run with this context id as the golden — no run-id extraction needed. A context with no matching run fails the gate step loudly instead of silently passing. |
 | `candidate-context` | `""` | Select the newest run with this context id as the candidate. Anomaly rules resolve it the same way. |
 | `max-level` | `none` | Worst severity that still passes: `none` \| `low` \| `medium` \| `high`. |
 | `allow-divergent` | `false` | Tolerate per-step changes; gate only on severity. |
@@ -124,6 +125,5 @@ For explicit id selection, `dprovenancekit runs --db <db> [--context <id>] [--la
 - **Fork PRs:** `GITHUB_TOKEN` is read-only on pull requests from forks, so the comment step
   is skipped with a notice rather than failing the job. The gate verdict (and job
   pass/fail) is unaffected.
-- The action reads databases in the standard type-erased format the library's stores and the
-  hosted backend produce.
+- The action reads databases in the standard type-erased format the library's stores produce.
 
