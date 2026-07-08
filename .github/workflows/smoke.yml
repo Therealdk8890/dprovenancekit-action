@@ -36,3 +36,20 @@ jobs:
         run: |
           echo "passed=${{ steps.gate.outputs.passed }} level=${{ steps.gate.outputs.regression-level }}"
           test "${{ steps.gate.outputs.passed }}" = "true"
+
+      - name: Gate a regressed candidate against golden (must FAIL the gate)
+        id: gate_fail
+        uses: Therealdk8890/dprovenancekit-action@v1
+        with:
+          db-path: smoke-traces.sqlite
+          golden-context: golden
+          candidate-context: regressed
+          comment: "false"
+          # Don't fail the job — we assert on the output. This is the negative fixture:
+          # it proves the gate reports a failure rather than silently passing everything.
+          fail-on-regression: "false"
+
+      - name: Assert the gate failed on the regression
+        run: |
+          echo "passed=${{ steps.gate_fail.outputs.passed }} level=${{ steps.gate_fail.outputs.regression-level }}"
+          test "${{ steps.gate_fail.outputs.passed }}" = "false"

@@ -30,6 +30,13 @@ def one_run(context_id):
         verify("smoke claim")
 
 
+def one_run_regressed(context_id):
+    # Drops plan.chosen and the verify step — a structural regression the gate MUST
+    # catch. Backs the negative fixture: proof the gate fails, not just passes.
+    with traced_run(store, context_id=context_id):
+        retrieve("smoke question")
+
+
 for stale in (DB, DB + "-shm", DB + "-wal"):
     if os.path.exists(stale):
         os.remove(stale)
@@ -37,14 +44,19 @@ for stale in (DB, DB + "-shm", DB + "-wal"):
 store = SQLiteTraceStore(TracedEvent, DB)
 one_run("golden")
 one_run("candidate")
+one_run_regressed("regressed")
 
 runs = {r.context_id: r.run_id for r in store.query_runs(TraceQueryDSL())}
-assert set(runs) == {"golden", "candidate"}, runs
+assert set(runs) == {"golden", "candidate", "regressed"}, runs
 
 github_env = os.environ.get("GITHUB_ENV")
 if github_env:
     with open(github_env, "a", encoding="utf-8") as fh:
         fh.write(f"GOLDEN_RUN_ID={runs['golden']}\n")
         fh.write(f"CANDIDATE_RUN_ID={runs['candidate']}\n")
+        fh.write(f"REGRESSED_RUN_ID={runs['regressed']}\n")
 
-print(f"recorded golden={runs['golden']} candidate={runs['candidate']} in {DB}")
+print(
+    f"recorded golden={runs['golden']} candidate={runs['candidate']} "
+    f"regressed={runs['regressed']} in {DB}"
+)
