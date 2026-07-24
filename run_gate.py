@@ -155,13 +155,13 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
         print("warning: DPROV_CLOUD_API_KEY not set. Skipping ingestion.", file=sys.stderr)
         if cloud_mode == "required":
             raise SystemExit(1)
-        return False, None
+        return IngestResult(False, None, None)
         
     if not project_id:
         print("warning: DPROV_PROJECT_ID not set. Skipping ingestion.", file=sys.stderr)
         if cloud_mode == "required":
             raise SystemExit(1)
-        return False, None
+        return IngestResult(False, None, None)
         
     try:
         proc = subprocess.run(
@@ -346,7 +346,10 @@ def main(env=None):
             if not promotion_ok and cloud_mode == "required":
                 print("error: required baseline promotion failed", file=sys.stderr)
                 return 1
-                
+        elif cloud_mode == "required":
+            print("error: required baseline promotion is ineligible on this branch/workflow", file=sys.stderr)
+            return 1
+            
     return 0
 
 

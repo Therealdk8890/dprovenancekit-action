@@ -84,6 +84,11 @@ inputs:
     description: "If true and the gate passes, promote the candidate run to a golden baseline."
     required: false
     default: "false"
+  default-branch:
+    description: >
+      The default branch of the repository, used to enforce baseline promotion.
+    required: false
+    default: "main"
   artifacts:
     description: "JSON array of artifacts to attach to the ingested run (e.g. FlakeDoctor report)."
     required: false
@@ -152,6 +157,7 @@ runs:
         DPROV_CLOUD_API_KEY: ${{ inputs.cloud-api-key }}
         DPROV_PROJECT_ID: ${{ inputs.project-id }}
         DPROV_PROMOTE_BASELINE: ${{ inputs.promote-baseline }}
+        DPROV_DEFAULT_BRANCH: ${{ inputs.default-branch }}
         DPROV_ARTIFACTS: ${{ inputs.artifacts }}
         DPROV_ARTIFACT_PATHS: ${{ inputs.artifact-paths }}
         DPROV_UPLOAD_TRACE_DATABASE: ${{ inputs.upload-trace-database }}
