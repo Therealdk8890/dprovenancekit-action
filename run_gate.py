@@ -20,6 +20,9 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
+import urllib.request
+import urllib.error
 
 # An unlikely delimiter for the $GITHUB_OUTPUT multiline (heredoc) format.
 _DELIM = "__DPROV_OUTPUT_EOF__"
@@ -95,6 +98,125 @@ def write_outputs(pairs, path):
             fh.write(f"{key}<<{_DELIM}\n{value}\n{_DELIM}\n")
 
 
+def ingest_run(env, db_path, run_id, report):
+    cloud_mode = env.get("DPROV_CLOUD_MODE", "off").lower()
+    if cloud_mode == "off":
+        return True, None
+
+    cloud_url = env.get("DPROV_CLOUD_URL", "https://api.dprovenance.dev").rstrip("/")
+    api_key = env.get("DPROV_CLOUD_API_KEY", "")
+    project_id = env.get("DPROV_PROJECT_ID", "")
+    
+    if not api_key:
+        print("warning: DPROV_CLOUD_API_KEY not set. Skipping ingestion.", file=sys.stderr)
+        if cloud_mode == "required":
+            raise SystemExit(1)
+        return False, None
+        
+    if not project_id:
+        print("warning: DPROV_PROJECT_ID not set. Skipping ingestion.", file=sys.stderr)
+        if cloud_mode == "required":
+            raise SystemExit(1)
+        return False, None
+        
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "dprovenancekit.cli", "export", "--db", db_path, "--run", run_id],
+            capture_output=True, text=True, check=True
+        )
+        
+        events = []
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            events.append(json.loads(line))
+            
+        if not events:
+            print(f"warning: run {run_id} produced no events during export", file=sys.stderr)
+            if cloud_mode == "required":
+                raise SystemExit(1)
+            return False, None
+            
+        context_id = events[0].get("context_id", "unknown")
+            
+        gate_report_sha256 = hashlib.sha256(json.dumps(report).encode("utf-8")).hexdigest()
+
+        run_metadata = {
+            "client_run_id": run_id,
+            "context_id": context_id,
+            "commit_sha": os.environ.get("GITHUB_SHA"),
+            "branch": os.environ.get("GITHUB_REF_NAME"),
+            "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
+            "workflow_event": os.environ.get("GITHUB_EVENT_NAME"),
+            "gate_status": "passed" if report.get("passed") else "failed",
+            "gate_report_sha256": gate_report_sha256,
+        }
+        
+        artifacts_json = env.get("DPROV_ARTIFACTS", "[]")
+        try:
+            artifacts = json.loads(artifacts_json)
+        except Exception:
+            artifacts = []
+            
+        payload = {
+            "schema_version": "dprov.ingest.v1",
+            "project_id": project_id,
+            "run": run_metadata,
+            "events": events,
+            "artifacts": artifacts
+        }
+        
+        req = urllib.request.Request(
+            f"{cloud_url}/api/v1/traces/ingest",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp_body = json.loads(resp.read())
+            print("Successfully ingested run to cloud.", file=sys.stderr)
+            return True, resp_body.get("viewer_url")
+    except Exception as exc:
+        print(f"error during ingestion: {exc}", file=sys.stderr)
+        if cloud_mode == "required":
+            raise SystemExit(1)
+        return False, None
+
+
+def promote_baseline(env, run_id):
+    if not env.get("DPROV_CLOUD_MODE") or env["DPROV_CLOUD_MODE"] == "off":
+        return True
+    if env.get("DPROV_PROMOTE_BASELINE", "false").lower() != "true":
+        return True
+        
+    cloud_url = env.get("DPROV_CLOUD_URL", "https://api.dprovenance.dev").rstrip("/")
+    api_key = env.get("DPROV_CLOUD_API_KEY", "")
+    project_id = env.get("DPROV_PROJECT_ID", "")
+    
+    if not api_key or not project_id:
+        return False
+        
+    try:
+        payload = {
+            "project_id": project_id,
+            "run_id": run_id
+        }
+        req = urllib.request.Request(
+            f"{cloud_url}/api/v1/baselines/promote",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+            print("Successfully promoted run to baseline.", file=sys.stderr)
+            return True
+    except Exception as exc:
+        print(f"warning: failed to promote baseline: {exc}", file=sys.stderr)
+        return False
+
+
 def main(env=None):
     env = dict(os.environ if env is None else env)
     try:
@@ -128,6 +250,11 @@ def main(env=None):
         print("error: gate did not emit a JSON report", file=sys.stderr)
         return 2
 
+    # Ingest candidate run to cloud if configured
+    ingest_ok, viewer_url = ingest_run(env, candidate_db, candidate, report)
+    if viewer_url:
+        report["viewer_url"] = viewer_url
+
     write_outputs(render_outputs(report), env.get("GITHUB_OUTPUT"))
 
     summary = report.get("summary", "")
@@ -136,9 +263,15 @@ def main(env=None):
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as fh:
             fh.write("### DProvenanceKit regression gate\n\n```\n" + summary + "\n```\n")
+            if viewer_url:
+                fh.write(f"\n[🔍 View full regression trace in DProvenance Cloud]({viewer_url})\n")
+    
+    # Promote to baseline if gate passed and promotion is requested
+    if report.get("passed"):
+        promote_baseline(env, candidate)
+        
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

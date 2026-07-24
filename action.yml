@@ -64,6 +64,38 @@ inputs:
     description: "Python version to set up."
     required: false
     default: "3.x"
+  cloud-mode:
+    description: "Whether to ingest traces to DProvenance Cloud ('off', 'optional', 'required'). 'required' fails the action if ingestion fails."
+    required: false
+    default: "off"
+  cloud-url:
+    description: "DProvenance Cloud base URL."
+    required: false
+    default: "https://api.dprovenance.dev"
+  cloud-api-key:
+    description: "API Key for ingestion."
+    required: false
+    default: ""
+  project-id:
+    description: "Project ID for the cloud trace."
+    required: false
+    default: ""
+  promote-baseline:
+    description: "If true and the gate passes, promote the candidate run to a golden baseline."
+    required: false
+    default: "false"
+  artifacts:
+    description: "JSON array of artifacts to attach to the ingested run (e.g. FlakeDoctor report)."
+    required: false
+    default: "[]"
+  artifact-paths:
+    description: "JSON array of paths to upload to DProvenance Cloud."
+    required: false
+    default: "[]"
+  upload-trace-database:
+    description: "Upload the SQLite trace database to the CI artifact."
+    required: false
+    default: "false"
   github-token:
     description: "Token used to post the PR comment. Defaults to the job's GITHUB_TOKEN."
     required: false
@@ -115,6 +147,14 @@ runs:
         DPROV_CANDIDATE_CONTEXT: ${{ inputs.candidate-context }}
         DPROV_MAX_LEVEL: ${{ inputs.max-level }}
         DPROV_ALLOW_DIVERGENT: ${{ inputs.allow-divergent }}
+        DPROV_CLOUD_MODE: ${{ inputs.cloud-mode }}
+        DPROV_CLOUD_URL: ${{ inputs.cloud-url }}
+        DPROV_CLOUD_API_KEY: ${{ inputs.cloud-api-key }}
+        DPROV_PROJECT_ID: ${{ inputs.project-id }}
+        DPROV_PROMOTE_BASELINE: ${{ inputs.promote-baseline }}
+        DPROV_ARTIFACTS: ${{ inputs.artifacts }}
+        DPROV_ARTIFACT_PATHS: ${{ inputs.artifact-paths }}
+        DPROV_UPLOAD_TRACE_DATABASE: ${{ inputs.upload-trace-database }}
 
     - name: Run anomaly rules
       id: anomalies
@@ -141,6 +181,16 @@ runs:
       run: |
         echo "::error title=DProvenanceKit::Regression gate failed (severity: ${{ steps.gate.outputs.regression-level }})"
         exit 1
+
+    - name: Upload artifacts
+      if: ${{ always() && inputs.upload-trace-database == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: dprovenancekit-reproduction
+        path: |
+          ${{ inputs.db-path }}
+          flake-report.json
+        if-no-files-found: ignore
 
     - name: Enforce anomaly rules
       if: ${{ inputs.fail-on-anomaly == 'true' && steps.anomalies.outputs.anomaly-count != '' && steps.anomalies.outputs.anomaly-count != '0' }}

@@ -54,6 +54,11 @@ def render_comment(report):
     reasoning = report.get("reasoning")
     if reasoning:
         lines += ["", f"_{reasoning}_"]
+        
+    viewer_url = report.get("viewer_url")
+    if viewer_url:
+        lines += ["", f"[🔍 View full regression trace in DProvenance Cloud]({viewer_url})"]
+        
     return "\n".join(lines)
 
 
