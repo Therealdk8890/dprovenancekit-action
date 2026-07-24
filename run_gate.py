@@ -21,6 +21,46 @@ import os
 import subprocess
 import sys
 import hashlib
+from dataclasses import dataclass
+
+@dataclass
+class IngestResult:
+    uploaded: bool
+    server_run_id: str | None
+    viewer_url: str | None
+
+def normalize_export_event(row: dict) -> dict:
+    if "event_id" not in row:
+        raise ValueError(f"Export row is missing required field 'event_id': {row}")
+    if "run_id" not in row:
+        raise ValueError(f"Export row is missing required field 'run_id': {row}")
+    if "context_id" not in row:
+        raise ValueError(f"Export row is missing required field 'context_id': {row}")
+    if "priority" not in row:
+        raise ValueError(f"Export row is missing required field 'priority': {row}")
+    if "sequence" not in row:
+        raise ValueError(f"Export row is missing required field 'sequence': {row}")
+    if "engine" not in row:
+        raise ValueError(f"Export row is missing required field 'engine': {row}")
+    if "type" not in row:
+        raise ValueError(f"Export row is missing required field 'type': {row}")
+    if "timestamp" not in row:
+        raise ValueError(f"Export row is missing required field 'timestamp': {row}")
+        
+    return {
+        "id": row["event_id"],
+        "run_id": row["run_id"],
+        "context_id": row["context_id"],
+        "priority": row["priority"],
+        "sequence": row["sequence"],
+        "engine": row["engine"],
+        "span_id": row.get("span_id"),
+        "parent_span_id": row.get("parent_span_id"),
+        "type": row["type"],
+        "payload": row.get("data"),
+        "timestamp": row["timestamp"],
+    }
+
 import urllib.request
 import urllib.error
 
@@ -98,10 +138,14 @@ def write_outputs(pairs, path):
             fh.write(f"{key}<<{_DELIM}\n{value}\n{_DELIM}\n")
 
 
-def ingest_run(env, db_path, run_id, report):
+def ingest_run(env, db_path, run_id, report) -> IngestResult:
     cloud_mode = env.get("DPROV_CLOUD_MODE", "off").lower()
+    if cloud_mode not in {"off", "optional", "required"}:
+        print(f"error: invalid cloud-mode '{cloud_mode}'. Must be 'off', 'optional', or 'required'.", file=sys.stderr)
+        raise SystemExit(2)
+        
     if cloud_mode == "off":
-        return True, None
+        return IngestResult(False, None, None)
 
     cloud_url = env.get("DPROV_CLOUD_URL", "https://api.dprovenance.dev").rstrip("/")
     api_key = env.get("DPROV_CLOUD_API_KEY", "")
@@ -121,7 +165,7 @@ def ingest_run(env, db_path, run_id, report):
         
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "dprovenancekit.cli", "export", "--db", db_path, "--run", run_id],
+            [sys.executable, "-m", "dprovenancekit.cli", "export", "--db", db_path, "--run", run_id, "--format", "jsonl"],
             capture_output=True, text=True, check=True
         )
         
@@ -130,13 +174,20 @@ def ingest_run(env, db_path, run_id, report):
             line = line.strip()
             if not line:
                 continue
-            events.append(json.loads(line))
+            try:
+                row = json.loads(line)
+                events.append(normalize_export_event(row))
+            except Exception as e:
+                print(f"error processing export row: {e}", file=sys.stderr)
+                if cloud_mode == "required":
+                    raise SystemExit(1)
+                return IngestResult(False, None, None)
             
         if not events:
             print(f"warning: run {run_id} produced no events during export", file=sys.stderr)
             if cloud_mode == "required":
                 raise SystemExit(1)
-            return False, None
+            return IngestResult(False, None, None)
             
         context_id = events[0].get("context_id", "unknown")
             
@@ -175,13 +226,20 @@ def ingest_run(env, db_path, run_id, report):
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp_body = json.loads(resp.read())
+            
+            if "run_id" not in resp_body or "viewer_url" not in resp_body or "content_sha256" not in resp_body:
+                print("error: malformed backend response, missing required fields.", file=sys.stderr)
+                if cloud_mode == "required":
+                    raise SystemExit(1)
+                return IngestResult(False, None, None)
+                
             print("Successfully ingested run to cloud.", file=sys.stderr)
-            return True, resp_body.get("viewer_url")
+            return IngestResult(True, resp_body.get("run_id"), resp_body.get("viewer_url"))
     except Exception as exc:
         print(f"error during ingestion: {exc}", file=sys.stderr)
         if cloud_mode == "required":
             raise SystemExit(1)
-        return False, None
+        return IngestResult(False, None, None)
 
 
 def promote_baseline(env, run_id):
@@ -251,9 +309,9 @@ def main(env=None):
         return 2
 
     # Ingest candidate run to cloud if configured
-    ingest_ok, viewer_url = ingest_run(env, candidate_db, candidate, report)
-    if viewer_url:
-        report["viewer_url"] = viewer_url
+    ingest_result = ingest_run(env, candidate_db, candidate, report)
+    if ingest_result.viewer_url:
+        report["viewer_url"] = ingest_result.viewer_url
 
     write_outputs(render_outputs(report), env.get("GITHUB_OUTPUT"))
 
@@ -263,13 +321,32 @@ def main(env=None):
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as fh:
             fh.write("### DProvenanceKit regression gate\n\n```\n" + summary + "\n```\n")
-            if viewer_url:
-                fh.write(f"\n[🔍 View full regression trace in DProvenance Cloud]({viewer_url})\n")
+            if ingest_result.viewer_url:
+                fh.write(f"\n[🔍 View full regression trace in DProvenance Cloud]({ingest_result.viewer_url})\n")
     
     # Promote to baseline if gate passed and promotion is requested
-    if report.get("passed"):
-        promote_baseline(env, candidate)
+    promote_requested = env.get("DPROV_PROMOTE_BASELINE", "false").lower() == "true"
+    cloud_mode = env.get("DPROV_CLOUD_MODE", "off").lower()
+    
+    if report.get("passed") and promote_requested and ingest_result.server_run_id:
+        github_event = env.get("GITHUB_EVENT_NAME", "")
+        github_ref = env.get("GITHUB_REF_NAME", "")
+        configured_branch = env.get("DPROV_DEFAULT_BRANCH", "main")
         
+        can_promote = True
+        if github_event != "push":
+            print("warning: baseline promotion requires a push workflow", file=sys.stderr)
+            can_promote = False
+        if github_ref != configured_branch:
+            print("warning: baseline promotion requires the default branch", file=sys.stderr)
+            can_promote = False
+            
+        if can_promote:
+            promotion_ok = promote_baseline(env, ingest_result.server_run_id)
+            if not promotion_ok and cloud_mode == "required":
+                print("error: required baseline promotion failed", file=sys.stderr)
+                return 1
+                
     return 0
 
 
