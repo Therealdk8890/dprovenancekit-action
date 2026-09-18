@@ -147,7 +147,17 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
     if cloud_mode == "off":
         return IngestResult(False, None, None)
 
-    cloud_url = env.get("DPROV_CLOUD_URL", "https://api.dprovenance.dev").rstrip("/")
+    # No hosted DProvenanceKit cloud. Require an explicit customer BYO URL; fail closed
+    # if cloud-mode is enabled without one (do not fall back to api.dprovenance.dev).
+    cloud_url = (env.get("DPROV_CLOUD_URL") or "").rstrip("/")
+    if not cloud_url:
+        print(
+            "error: cloud-mode is enabled but cloud-url is empty. "
+            "Supply your own BYO endpoint; there is no DProvenanceKit-hosted service.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
     api_key = env.get("DPROV_CLOUD_API_KEY", "")
     project_id = env.get("DPROV_PROJECT_ID", "")
     
@@ -248,11 +258,15 @@ def promote_baseline(env, run_id):
     if env.get("DPROV_PROMOTE_BASELINE", "false").lower() != "true":
         return True
         
-    cloud_url = env.get("DPROV_CLOUD_URL", "https://api.dprovenance.dev").rstrip("/")
+    cloud_url = (env.get("DPROV_CLOUD_URL") or "").rstrip("/")
     api_key = env.get("DPROV_CLOUD_API_KEY", "")
     project_id = env.get("DPROV_PROJECT_ID", "")
     
-    if not api_key or not project_id:
+    if not cloud_url or not api_key or not project_id:
+        print(
+            "warning: baseline promotion skipped — cloud-url, API key, and project-id are all required (BYO only).",
+            file=sys.stderr,
+        )
         return False
         
     try:

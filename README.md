@@ -2,18 +2,31 @@
 
 DProvenanceKit records each AI agent execution as a queryable, diffable trace.
 This action gates your pull requests on that record: it compares a candidate
-run against a golden baseline, fails the check when the agent's reasoning
-regresses — a dropped verification step, a looping tool, a reordered execution
-path — and posts a sticky PR comment with the diff. It wraps the server-less
-`dprovenancekit gate` CLI, so gating runs entirely inside your runner: no hosted
-backend and no API keys. The action installs the open-source `dprovenancekit`
-package from PyPI; the wrapper scripts it ships depend only on the Python
+run against a golden baseline, fails the check when the agent's **instrumented
+decision path** regresses — a dropped verification step, a looping tool, a
+reordered execution path — and posts a sticky PR comment with the diff. It wraps
+the server-less `dprovenancekit gate` CLI, so gating runs entirely inside your
+runner: **no hosted DProvenanceKit backend** and no API keys for the default
+path. The action installs the open-source `dprovenancekit` package from PyPI
+(default pin below); the wrapper scripts it ships depend only on the Python
 standard library.
+
+## Recommended pins
+
+- **Action:** pin to a **commit SHA** (preferred for supply-chain review) or a
+  release tag such as `@v1.1.1` / `@v1`. Avoid floating `@main`.
+  ```yaml
+  uses: Therealdk8890/dprovenancekit-action@<commit-sha>   # preferred
+  # uses: Therealdk8890/dprovenancekit-action@v1          # floating major — OK for demos
+  ```
+- **PyPI package:** the Action default `install-spec` is
+  **`dprovenancekit==0.7.0`** (core gate; crypto extra not required for gating).
+  Override only for deliberate upgrades.
 
 ## Usage
 
 ```yaml
-name: reasoning-regression
+name: decision-path-regression
 on: pull_request
 
 permissions:
@@ -39,6 +52,7 @@ jobs:
           candidate-context: candidate  # (or pass golden-run-id / candidate-run-id)
           max-level: none          # strict: any divergence fails
           # allow-divergent: true  # tolerate per-step changes, gate only on severity
+          # install-spec: dprovenancekit==0.7.0   # already the Action default
 ```
 
 ## Inputs
@@ -58,8 +72,17 @@ jobs:
 | `comment` | `true` | Post a sticky summary comment on the PR. |
 | `anomaly-rules` | `""` | Path to a JSON rules config. When set, runs the out-of-the-box anomaly rules over the candidate run. |
 | `fail-on-anomaly` | `false` | Fail the job when an anomaly rule fires. |
-| `install-spec` | `dprovenancekit` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
+| `install-spec` | `dprovenancekit==0.7.0` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
 | `python-version` | `3.x` | Python to set up. |
+| `cloud-mode` | `off` | Customer **BYO** cloud ingest only: `off` \| `optional` \| `required`. There is **no** DProvenanceKit-hosted service. |
+| `cloud-url` | `""` | Customer-supplied cloud base URL. **Required** when `cloud-mode` is not `off` (fail closed if empty — no default host). |
+| `cloud-api-key` | `""` | API key for BYO cloud ingestion. |
+| `project-id` | `""` | Project ID for BYO cloud ingest. |
+| `promote-baseline` | `false` | If true and the gate passes, attempt BYO baseline promotion (still requires `cloud-url` + key + project). |
+| `default-branch` | `main` | Default branch name used to enforce baseline promotion eligibility. |
+| `artifacts` | `[]` | JSON array of artifacts to attach to an ingested run. |
+| `artifact-paths` | `[]` | JSON array of paths to upload to the BYO cloud endpoint. |
+| `upload-trace-database` | `false` | Upload the SQLite trace database as a CI artifact. |
 | `github-token` | `${{ github.token }}` | Token used to post the comment. |
 
 ## Outputs
@@ -72,6 +95,19 @@ jobs:
 | `report-json` | Full gate report as a JSON string. |
 | `anomaly-count` | Number of anomalies the rules fired on (`0` when `anomaly-rules` is unset). |
 | `anomalies-json` | Anomaly findings as a JSON string (`{}` when `anomaly-rules` is unset). |
+
+## Cloud ingest (customer BYO only)
+
+Public DProvenanceKit docs do **not** offer a hosted cloud control plane. The
+optional `cloud-*` inputs exist only so a customer can point the Action at
+**their own** ingest endpoint.
+
+- Default: `cloud-mode=off` — local gate only.
+- If you set `cloud-mode` to `optional` or `required`, you **must** also set
+  `cloud-url` to your endpoint. An empty/missing URL **fails closed** (exit 1);
+  the Action will not invent `https://api.dprovenance.dev` or any other host.
+- `optional` still skips on missing API key / project id / transport errors
+  (warn only); `required` fails the job on those failures.
 
 ## Anomaly rules
 
@@ -126,4 +162,3 @@ For explicit id selection, `dprovenancekit runs --db <db> [--context <id>] [--la
   is skipped with a notice rather than failing the job. The gate verdict (and job
   pass/fail) is unaffected.
 - The action reads databases in the standard type-erased format the library's stores produce.
-
