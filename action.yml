@@ -1,5 +1,5 @@
 name: "DProvenanceKit regression gate"
-description: "Fail a pull request when an agent's reasoning regresses against a golden run, and comment the diff."
+description: "Fail a pull request when an agent's instrumented decision path regresses against a golden run, and comment the diff."
 branding:
   icon: "git-pull-request"
   color: "purple"
@@ -57,27 +57,27 @@ inputs:
     required: false
     default: "false"
   install-spec:
-    description: "pip requirement to install the gate from (e.g. 'dprovenancekit', 'dprovenancekit==0.2.0', or a VCS URL)."
+    description: "pip requirement to install the gate from. Default is pinned to the released gate package; override only for deliberate upgrades or VCS installs."
     required: false
-    default: "dprovenancekit"
+    default: "dprovenancekit==0.7.0"
   python-version:
     description: "Python version to set up."
     required: false
     default: "3.x"
   cloud-mode:
-    description: "Whether to ingest traces to DProvenance Cloud ('off', 'optional', 'required'). 'required' fails the action if ingestion fails."
+    description: "Customer BYO cloud ingest only ('off', 'optional', 'required'). There is no DProvenanceKit-hosted service. Default 'off'. When enabled, cloud-url is required (fail closed if missing)."
     required: false
     default: "off"
   cloud-url:
-    description: "DProvenance Cloud base URL."
+    description: "Customer-supplied cloud base URL (BYO). Required when cloud-mode is optional or required. No default host — there is no DProvenanceKit-hosted API."
     required: false
-    default: "https://api.dprovenance.dev"
+    default: ""
   cloud-api-key:
-    description: "API Key for ingestion."
+    description: "API key for customer BYO cloud ingestion (unused when cloud-mode=off)."
     required: false
     default: ""
   project-id:
-    description: "Project ID for the cloud trace."
+    description: "Project ID for customer BYO cloud ingest (unused when cloud-mode=off)."
     required: false
     default: ""
   promote-baseline:
@@ -94,7 +94,7 @@ inputs:
     required: false
     default: "[]"
   artifact-paths:
-    description: "JSON array of paths to upload to DProvenance Cloud."
+    description: "JSON array of paths to upload to the customer BYO cloud endpoint (unused when cloud-mode=off)."
     required: false
     default: "[]"
   upload-trace-database:
