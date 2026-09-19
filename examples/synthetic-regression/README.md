@@ -18,9 +18,11 @@ git clone https://github.com/Therealdk8890/dprovenancekit-action.git
 cd dprovenancekit-action
 ```
 
-On GitHub: **Actions → “Synthetic regression demo” → Run workflow**.
+Copy [`github-workflow.yml`](github-workflow.yml) to `.github/workflows/synthetic-regression.yml` in this repo (or your fork), then:
 
-Or push any commit to `main` — the workflow runs automatically.
+**Actions → “Synthetic regression demo” → Run workflow**.
+
+(Editing files under `.github/workflows/` requires a GitHub token with the `workflow` scope; the demo agent and recorder do not.)
 
 ## Where the intentional bug is
 
