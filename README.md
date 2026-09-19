@@ -14,15 +14,22 @@ standard library.
 <!-- synthetic-regression-quickstart -->
 ## 60-second proof (fork this)
 
-Want to see the Action catch a bug before reading inputs?
+**Category:** regression testing for AI agent execution paths.
 
-1. Open **Actions → “Synthetic regression demo” → Run workflow**, or push to `main`.
-2. CI records a tiny agent path, gates a matching run (**pass**), then gates a run that **drops `verify`** (**fail**).
-3. Read [`examples/synthetic-regression/`](examples/synthetic-regression/) — the intentional bug is in `agent.py`.
+Same bug, four checkers:
 
-Marketplace listing: [DProvenanceKit regression gate](https://github.com/marketplace/actions/dprovenancekit-regression-gate).
+| Check | Result |
+| --- | --- |
+| Output test | PASS |
+| LLM eval | PASS |
+| OTel / LangSmith | PASS |
+| **DProvenanceKit path gate** | **FAIL — `verify` dropped** |
 
-Why this matters beyond diffing: local decision-path evidence + CI refuse-to-merge is the distribution wedge; cryptographic attestation / audit-ready proof is the differentiator for regulated buyers — see [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
+1. **Actions → “Synthetic regression demo” → Run workflow** (or push to `main`).
+2. CI gates a matching run (**pass**), then a run that drops `verify` (**fail**).
+3. Read [`examples/synthetic-regression/`](examples/synthetic-regression/) — intentional bug in `agent.py`.
+
+Keep LangSmith for dashboards; add this gate for execution-path regressions. Deeper layer (attestation / audit proof): [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
 
 <!-- /synthetic-regression-quickstart -->
 
