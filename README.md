@@ -11,6 +11,21 @@ path. The action installs the open-source `dprovenancekit` package from PyPI
 (default pin below); the wrapper scripts it ships depend only on the Python
 standard library.
 
+<!-- synthetic-regression-quickstart -->
+## 60-second proof (fork this)
+
+Want to see the Action catch a bug before reading inputs?
+
+1. Open **Actions → “Synthetic regression demo” → Run workflow**, or push to `main`.
+2. CI records a tiny agent path, gates a matching run (**pass**), then gates a run that **drops `verify`** (**fail**).
+3. Read [`examples/synthetic-regression/`](examples/synthetic-regression/) — the intentional bug is in `agent.py`.
+
+Marketplace listing: [DProvenanceKit regression gate](https://github.com/marketplace/actions/dprovenancekit-regression-gate).
+
+Why this matters beyond diffing: local decision-path evidence + CI refuse-to-merge is the distribution wedge; cryptographic attestation / audit-ready proof is the differentiator for regulated buyers — see [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
+
+<!-- /synthetic-regression-quickstart -->
+
 ## Recommended pins
 
 - **Action:** pin to a **commit SHA** (preferred for supply-chain review) or a
