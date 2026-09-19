@@ -1,0 +1,58 @@
+name: Synthetic regression demo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/synthetic-regression
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Record golden, matching, and intentionally regressed traces
+        run: |
+          python -m pip install --disable-pip-version-check 'dprovenancekit==0.7.0'
+          python record_traces.py
+
+      - name: Gate matching candidate (must PASS)
+        id: gate_ok
+        uses: Therealdk8890/dprovenancekit-action@v1
+        with:
+          db-path: examples/synthetic-regression/demo-traces.sqlite
+          golden-context: golden
+          candidate-context: candidate
+          comment: "false"
+
+      - name: Assert matching candidate passed
+        run: |
+          echo "passed=${{ steps.gate_ok.outputs.passed }} level=${{ steps.gate_ok.outputs.regression-level }}"
+          test "${{ steps.gate_ok.outputs.passed }}" = "true"
+
+      - name: Gate regressed candidate that dropped verify (must FAIL the gate)
+        id: gate_bad
+        uses: Therealdk8890/dprovenancekit-action@v1
+        with:
+          db-path: examples/synthetic-regression/demo-traces.sqlite
+          golden-context: golden
+          candidate-context: regressed
+          comment: "false"
+          # Keep the job alive so we can assert the Action reported failure.
+          fail-on-regression: "false"
+
+      - name: Assert regressed candidate failed the gate
+        run: |
+          echo "passed=${{ steps.gate_bad.outputs.passed }} level=${{ steps.gate_bad.outputs.regression-level }}"
+          test "${{ steps.gate_bad.outputs.passed }}" = "false"
