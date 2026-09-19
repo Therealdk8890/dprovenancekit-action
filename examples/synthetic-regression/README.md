@@ -1,28 +1,41 @@
-# 60-second synthetic regression demo
+# 60-second killer demo: evals PASS, path FAIL
 
-This folder is the stranger-friendly front door for the
+**Front door category:** regression testing for AI agent execution paths.
+
+This folder is the stranger-friendly proof for the
 [DProvenanceKit regression gate](https://github.com/marketplace/actions/dprovenancekit-regression-gate).
 
-## What you will see
+## The visceral contrast
 
-1. A tiny agent records a **golden** decision path: `retrieve → plan → verify → answer`.
-2. CI gates a matching candidate → **pass**.
-3. CI gates a **regressed** candidate that drops `plan` + `verify` → **fail** (this is the proof the Action works).
+Same intentional bug: the agent drops `plan` + `verify`. The final answer can still look fine.
+
+| Check | Result |
+| --- | --- |
+| Output / snapshot test | **PASS** |
+| LLM-as-judge / eval | **PASS** |
+| OpenTelemetry / LangSmith monitoring | **PASS** |
+| DProvenanceKit execution-path gate | **FAIL** — `verify` disappeared |
+
+That gap is why this exists. Provenance and cryptographic attestation are how you later prove the path that shipped — they are not the first sentence.
+
+## What CI does here
+
+1. Records a **golden** path: `retrieve → plan → verify → answer`
+2. Gates a matching candidate → **pass**
+3. Gates a **regressed** candidate that drops `plan` + `verify` → **fail**
 
 No DProvenanceKit cloud account. No API keys. Local SQLite only.
 
-## Fork / clone path
+## Fork / run
 
 ```bash
 git clone https://github.com/Therealdk8890/dprovenancekit-action.git
 cd dprovenancekit-action
 ```
 
-Copy [`github-workflow.yml`](github-workflow.yml) to `.github/workflows/synthetic-regression.yml` in this repo (or your fork), then:
+On GitHub: **Actions → “Synthetic regression demo” → Run workflow** (workflow is already on `main`).
 
-**Actions → “Synthetic regression demo” → Run workflow**.
-
-(Editing files under `.github/workflows/` requires a GitHub token with the `workflow` scope; the demo agent and recorder do not.)
+Or push any commit — the workflow runs on push/PR.
 
 ## Where the intentional bug is
 
@@ -31,8 +44,6 @@ In [`agent.py`](agent.py):
 - `run_golden()` calls `verify(...)` (the compliance-relevant step).
 - `run_regressed()` skips `plan` and `verify` on purpose.
 
-The workflow asserts the gate **passes** the matching candidate and **fails** the regressed one.
-
 ## Run locally
 
 ```bash
@@ -40,11 +51,8 @@ python -m pip install 'dprovenancekit==0.7.0'
 python examples/synthetic-regression/record_traces.py
 ```
 
-## Next: attestation / audit proof
+## Next
 
-This demo proves **distribution** (CI refuses a drifted path). Cryptographic attestation and
-audit-ready proof bundles are covered in the product SDKs and the comparison page:
-
-- https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/
-- Swift attestation docs in `Therealdk8890/DProvenanceKit`
-- Python: `pip install 'dprovenancekit[crypto]'` (MVP software attestation)
+- Keep LangSmith / OTel for dashboards — run this gate beside them.
+- Compare page: https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/
+- Attestation / audit-ready proof: Swift Secure Enclave docs in `Therealdk8890/DProvenanceKit`; Python `pip install 'dprovenancekit[crypto]'`
