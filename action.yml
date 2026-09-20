@@ -1,13 +1,34 @@
 name: "DProvenanceKit regression gate"
-description: "Fail a pull request when an agent's instrumented decision path regresses against a golden run, and comment the diff."
+description: "Fail a pull request when an agent's instrumented decision path regresses, or when a VerificationReceipt is incomplete/tampered."
 branding:
   icon: "git-pull-request"
   color: "purple"
 
 inputs:
+  gate-mode:
+    description: "Which gate to run: path (decision-path regression, default) | receipt (Verification Receipt CI gate)."
+    required: false
+    default: "path"
+  receipt-path:
+    description: "Path to a VerificationReceipt JSON document. Required when gate-mode=receipt."
+    required: false
+    default: ""
+  invariant-path:
+    description: "Path to a VerificationInvariant JSON document. Defaults to the vendored claim-path-v1 fixture."
+    required: false
+    default: ""
+  fail-on-receipt-statuses:
+    description: "Comma-separated receipt statuses that fail the job (receipt mode). Default: incomplete,tampered."
+    required: false
+    default: "incomplete,tampered"
+  fail-on-receipt:
+    description: "Fail the job when the receipt status is in fail-on-receipt-statuses (true | false)."
+    required: false
+    default: "true"
   db-path:
-    description: "Path to the SQLite trace database containing both runs."
-    required: true
+    description: "Path to the SQLite trace database containing both runs. Required when gate-mode=path."
+    required: false
+    default: ""
   golden-db:
     description: "SQLite db holding the golden run, if separate from db-path (e.g. a restored baseline)."
     required: false
@@ -108,23 +129,32 @@ inputs:
 
 outputs:
   passed:
-    description: "true when no regression was detected, false otherwise."
-    value: ${{ steps.gate.outputs.passed }}
+    description: "true when the active gate passed, false otherwise."
+    value: ${{ steps.gate.outputs.passed || steps.receipt.outputs.passed }}
   regression-level:
-    description: "Engine-assessed severity: none | low | medium | high."
-    value: ${{ steps.gate.outputs.regression-level }}
+    description: "Engine-assessed severity: none | low | medium | high (path mode)."
+    value: ${{ steps.gate.outputs.regression-level || steps.receipt.outputs.regression-level || 'none' }}
   summary:
     description: "Human-readable gate summary."
-    value: ${{ steps.gate.outputs.summary }}
+    value: ${{ steps.gate.outputs.summary || steps.receipt.outputs.summary }}
   report-json:
     description: "Full gate report as a JSON string."
-    value: ${{ steps.gate.outputs.report-json }}
+    value: ${{ steps.gate.outputs.report-json || steps.receipt.outputs.report-json }}
   anomaly-count:
     description: "Number of anomalies the rules fired on (0 when anomaly-rules is unset)."
     value: "${{ steps.anomalies.outputs.anomaly-count || '0' }}"
   anomalies-json:
     description: "Anomaly findings as a JSON string ('{}' when anomaly-rules is unset)."
     value: "${{ steps.anomalies.outputs.anomalies-json || '{}' }}"
+  receipt-status:
+    description: "Recomputed VerificationReceipt status: verified | incomplete | tampered (receipt mode)."
+    value: ${{ steps.receipt.outputs.receipt-status || '' }}
+  receipt-reason:
+    description: "Short reason for the recomputed receipt status (receipt mode)."
+    value: ${{ steps.receipt.outputs.receipt-reason || '' }}
+  receipt-invariant-id:
+    description: "Invariant id used for evaluation (receipt mode)."
+    value: ${{ steps.receipt.outputs.receipt-invariant-id || '' }}
 
 runs:
   using: "composite"
@@ -135,13 +165,20 @@ runs:
         python-version: ${{ inputs.python-version }}
 
     - name: Install dprovenancekit
+      if: ${{ inputs.gate-mode != 'receipt' }}
       shell: bash
       run: python -m pip install --disable-pip-version-check "${{ inputs.install-spec }}"
 
     - name: Run regression gate
       id: gate
+      if: ${{ inputs.gate-mode != 'receipt' }}
       shell: bash
-      run: python "${{ github.action_path }}/run_gate.py"
+      run: |
+        if [ -z "${{ inputs.db-path }}" ]; then
+          echo "::error title=DProvenanceKit::db-path is required when gate-mode=path"
+          exit 2
+        fi
+        python "${{ github.action_path }}/run_gate.py"
       env:
         DPROV_DB: ${{ inputs.db-path }}
         DPROV_GOLDEN_DB: ${{ inputs.golden-db || inputs.db-path }}
@@ -164,7 +201,7 @@ runs:
 
     - name: Run anomaly rules
       id: anomalies
-      if: ${{ inputs.anomaly-rules != '' }}
+      if: ${{ inputs.gate-mode != 'receipt' && inputs.anomaly-rules != '' }}
       shell: bash
       run: python "${{ github.action_path }}/run_anomalies.py"
       env:
@@ -173,23 +210,48 @@ runs:
         DPROV_CANDIDATE_CONTEXT: ${{ inputs.candidate-context }}
         DPROV_ANOMALY_RULES: ${{ inputs.anomaly-rules }}
 
-    - name: Comment on pull request
-      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
+    - name: Run Verification Receipt gate
+      id: receipt
+      if: ${{ inputs.gate-mode == 'receipt' }}
+      shell: bash
+      run: python "${{ github.action_path }}/receipt_gate.py"
+      env:
+        DPROV_RECEIPT_PATH: ${{ inputs.receipt-path }}
+        DPROV_INVARIANT_PATH: ${{ inputs.invariant-path }}
+        DPROV_FAIL_ON_RECEIPT_STATUSES: ${{ inputs.fail-on-receipt-statuses }}
+
+    - name: Comment on pull request (path gate)
+      if: ${{ inputs.gate-mode != 'receipt' && inputs.comment == 'true' && github.event_name == 'pull_request' }}
       shell: bash
       run: python "${{ github.action_path }}/pr_comment.py"
       env:
         DPROV_REPORT_JSON: ${{ steps.gate.outputs.report-json }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
+    - name: Comment on pull request (receipt gate)
+      if: ${{ inputs.gate-mode == 'receipt' && inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      run: python "${{ github.action_path }}/receipt_pr_comment.py"
+      env:
+        DPROV_REPORT_JSON: ${{ steps.receipt.outputs.report-json }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+
     - name: Enforce gate
-      if: ${{ inputs.fail-on-regression == 'true' && steps.gate.outputs.passed != 'true' }}
+      if: ${{ inputs.gate-mode != 'receipt' && inputs.fail-on-regression == 'true' && steps.gate.outputs.passed != 'true' }}
       shell: bash
       run: |
         echo "::error title=DProvenanceKit::Regression gate failed (severity: ${{ steps.gate.outputs.regression-level }})"
         exit 1
 
+    - name: Enforce Verification Receipt gate
+      if: ${{ inputs.gate-mode == 'receipt' && inputs.fail-on-receipt == 'true' && steps.receipt.outputs.passed != 'true' }}
+      shell: bash
+      run: |
+        echo "::error title=DProvenanceKit::Verification Receipt gate failed (status: ${{ steps.receipt.outputs.receipt-status }})"
+        exit 1
+
     - name: Upload artifacts
-      if: ${{ always() && inputs.upload-trace-database == 'true' }}
+      if: ${{ always() && inputs.gate-mode != 'receipt' && inputs.upload-trace-database == 'true' }}
       uses: actions/upload-artifact@v4
       with:
         name: dprovenancekit-reproduction
@@ -199,9 +261,8 @@ runs:
         if-no-files-found: ignore
 
     - name: Enforce anomaly rules
-      if: ${{ inputs.fail-on-anomaly == 'true' && steps.anomalies.outputs.anomaly-count != '' && steps.anomalies.outputs.anomaly-count != '0' }}
+      if: ${{ inputs.gate-mode != 'receipt' && inputs.fail-on-anomaly == 'true' && steps.anomalies.outputs.anomaly-count != '' && steps.anomalies.outputs.anomaly-count != '0' }}
       shell: bash
       run: |
         echo "::error title=DProvenanceKit::${{ steps.anomalies.outputs.anomaly-count }} anomaly rule(s) fired"
         exit 1
-

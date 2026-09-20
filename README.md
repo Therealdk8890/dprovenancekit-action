@@ -1,15 +1,20 @@
 # DProvenanceKit regression gate — GitHub Action
 
 DProvenanceKit records each AI agent execution as a queryable, diffable trace.
-This action gates your pull requests on that record: it compares a candidate
-run against a golden baseline, fails the check when the agent's **instrumented
-decision path** regresses — a dropped verification step, a looping tool, a
-reordered execution path — and posts a sticky PR comment with the diff. It wraps
-the server-less `dprovenancekit gate` CLI, so gating runs entirely inside your
-runner: **no hosted DProvenanceKit backend** and no API keys for the default
-path. The action installs the open-source `dprovenancekit` package from PyPI
-(default pin below); the wrapper scripts it ships depend only on the Python
-standard library.
+This action gates your pull requests on that record in two complementary modes:
+
+1. **Path gate** (`gate-mode: path`, default) — compare a candidate run against a
+   golden baseline; fail when the agent's **instrumented decision path**
+   regresses (dropped verification step, looping tool, reordered path).
+2. **Verification Receipt gate** (`gate-mode: receipt`) — evaluate a
+   `VerificationReceipt` against the shared `claim-path-v1` invariant; fail when
+   status is `incomplete` or `tampered`.
+
+Both modes post a sticky PR comment with the verdict. The path gate wraps the
+server-less `dprovenancekit gate` CLI (**no hosted DProvenanceKit backend**).
+The receipt gate is **stdlib-only** and vendors Phase 0 fixtures/schemas from
+[DProvenanceKit](https://github.com/Therealdk8890/DProvenanceKit). This is an
+**attestation / provenance** gate — not an observability dashboard rival.
 
 <!-- synthetic-regression-quickstart -->
 ## 60-second proof (fork this)
@@ -32,6 +37,74 @@ Same bug, four checkers:
 Keep LangSmith for dashboards; add this gate for execution-path regressions. Deeper layer (attestation / audit proof): [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
 
 <!-- /synthetic-regression-quickstart -->
+
+## Verification Receipt gate (Phase 1B)
+
+Same status vocabulary as DProvenanceKit Phase 0 and CaseClarity Phase 1A:
+
+| Status | Meaning | Default CI |
+| --- | --- | --- |
+| `verified` | Required steps in order **and** integrity pass | PASS |
+| `incomplete` | Missing invariant evidence (e.g. no `verify` step) | FAIL |
+| `tampered` | Integrity / attestation failure | FAIL |
+
+**Verified ≠ claim objectively true.** Cryptography protects integrity of a
+recorded path; it does not certify factual truth of the claim text.
+
+JSON Schema validates structure only. The Action recomputes status from
+integrity flags + invariant evaluation (`required_steps` / `must_include` /
+`ordering`) — it does not trust a receipt's `status` field blindly.
+
+### Scoreboard (vendored fixtures)
+
+| Fixture | Gate |
+| --- | --- |
+| `fixtures/verification-receipt/verified.json` | PASS |
+| `fixtures/verification-receipt/incomplete.json` | FAIL |
+| `fixtures/verification-receipt/tampered.json` | FAIL |
+
+Workflow: **Actions → “Verification Receipt gate demo”** (also runs on PRs).
+
+### Usage
+
+```yaml
+name: verification-receipt
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  receipt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verification Receipt gate
+        uses: Therealdk8890/dprovenancekit-action@<commit-sha>
+        with:
+          gate-mode: receipt
+          receipt-path: path/to/verification-receipt.json
+          # invariant-path: optional; defaults to vendored claim-path-v1
+          # fail-on-receipt-statuses: incomplete,tampered
+```
+
+Local check (no Action runner required):
+
+```bash
+DPROV_RECEIPT_PATH=fixtures/verification-receipt/verified.json python receipt_gate.py
+DPROV_RECEIPT_PATH=fixtures/verification-receipt/incomplete.json python receipt_gate.py
+DPROV_RECEIPT_PATH=fixtures/verification-receipt/tampered.json python receipt_gate.py
+
+python -m unittest tests.test_receipt_gate -v
+```
+
+Fixtures and schemas under `fixtures/verification-receipt/` are vendored from
+`Therealdk8890/DProvenanceKit` main — see `fixtures/verification-receipt/SYNC_SOURCE.md`.
+Do not invent a second status vocabulary or expand step types beyond
+`evidence | extract | verify | claim`.
+
+The receipt gate **complements** the path-regression gate; it does not replace it.
 
 ## Recommended pins
 
@@ -81,7 +154,12 @@ jobs:
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `db-path` | — (required) | SQLite trace database holding both runs. |
+| `gate-mode` | `path` | `path` (decision-path regression) or `receipt` (Verification Receipt). |
+| `receipt-path` | `""` | Path to a VerificationReceipt JSON. Required when `gate-mode=receipt`. |
+| `invariant-path` | vendored `claim-path-v1` | Path to a VerificationInvariant JSON (receipt mode). |
+| `fail-on-receipt-statuses` | `incomplete,tampered` | Receipt statuses that fail the job (receipt mode). |
+| `fail-on-receipt` | `true` | Fail the job when receipt status is in `fail-on-receipt-statuses`. |
+| `db-path` | `""` (required for `path`) | SQLite trace database holding both runs. |
 | `golden-db` | `db-path` | SQLite db holding the golden run, if separate (e.g. a restored baseline). |
 | `candidate-db` | `db-path` | SQLite db holding the candidate run, if separate. |
 | `golden-run-id` | `""` | Run id of the golden (known-good) trace. Provide this **or** `golden-context`. |
@@ -111,12 +189,15 @@ jobs:
 
 | Output | Description |
 | --- | --- |
-| `passed` | `true` when no regression was detected. |
-| `regression-level` | Engine-assessed severity (`none` \| `low` \| `medium` \| `high`). |
+| `passed` | `true` when the active gate passed. |
+| `regression-level` | Engine-assessed severity (`none` \| `low` \| `medium` \| `high`) in path mode. |
 | `summary` | Human-readable gate summary. |
 | `report-json` | Full gate report as a JSON string. |
 | `anomaly-count` | Number of anomalies the rules fired on (`0` when `anomaly-rules` is unset). |
 | `anomalies-json` | Anomaly findings as a JSON string (`{}` when `anomaly-rules` is unset). |
+| `receipt-status` | Recomputed status (`verified` \| `incomplete` \| `tampered`) in receipt mode. |
+| `receipt-reason` | Short reason for the recomputed status. |
+| `receipt-invariant-id` | Invariant id used for evaluation. |
 
 ## Cloud ingest (customer BYO only)
 
