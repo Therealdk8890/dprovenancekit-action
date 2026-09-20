@@ -1,0 +1,85 @@
+name: Verification Receipt gate demo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Unit tests (stdlib unittest)
+        run: python -m unittest tests.test_receipt_gate -v
+
+  scoreboard:
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Receipt verified (must PASS)
+        id: verified
+        uses: ./
+        with:
+          gate-mode: receipt
+          receipt-path: fixtures/verification-receipt/verified.json
+          comment: "false"
+
+      - name: Assert verified passed
+        run: |
+          echo "status=${{ steps.verified.outputs.receipt-status }} passed=${{ steps.verified.outputs.passed }}"
+          test "${{ steps.verified.outputs.passed }}" = "true"
+          test "${{ steps.verified.outputs.receipt-status }}" = "verified"
+
+      - name: Receipt incomplete (must FAIL the gate)
+        id: incomplete
+        uses: ./
+        with:
+          gate-mode: receipt
+          receipt-path: fixtures/verification-receipt/incomplete.json
+          comment: "false"
+          # Keep the job alive so we can assert the Action reported failure.
+          fail-on-receipt: "false"
+
+      - name: Assert incomplete failed
+        run: |
+          echo "status=${{ steps.incomplete.outputs.receipt-status }} passed=${{ steps.incomplete.outputs.passed }}"
+          test "${{ steps.incomplete.outputs.passed }}" = "false"
+          test "${{ steps.incomplete.outputs.receipt-status }}" = "incomplete"
+
+      - name: Receipt tampered (must FAIL the gate)
+        id: tampered
+        uses: ./
+        with:
+          gate-mode: receipt
+          receipt-path: fixtures/verification-receipt/tampered.json
+          comment: "false"
+          fail-on-receipt: "false"
+
+      - name: Assert tampered failed
+        run: |
+          echo "status=${{ steps.tampered.outputs.receipt-status }} passed=${{ steps.tampered.outputs.passed }}"
+          test "${{ steps.tampered.outputs.passed }}" = "false"
+          test "${{ steps.tampered.outputs.receipt-status }}" = "tampered"
+
+      - name: Scoreboard summary
+        if: always()
+        run: |
+          {
+            echo "### Verification Receipt scoreboard"
+            echo ""
+            echo "| Fixture | Expected | Result |"
+            echo "| --- | --- | --- |"
+            echo "| verified.json | PASS | ${{ steps.verified.outputs.passed }} (${{ steps.verified.outputs.receipt-status }}) |"
+            echo "| incomplete.json | FAIL | passed=${{ steps.incomplete.outputs.passed }} (${{ steps.incomplete.outputs.receipt-status }}) |"
+            echo "| tampered.json | FAIL | passed=${{ steps.tampered.outputs.passed }} (${{ steps.tampered.outputs.receipt-status }}) |"
+          } >> "$GITHUB_STEP_SUMMARY"
