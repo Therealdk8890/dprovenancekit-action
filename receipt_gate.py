@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Verification Receipt CI gate (Phase 1B).
+"""Verification Receipt CI gate (Phase 1B + Phase 1C sync).
 
 Evaluates a VerificationReceipt against a VerificationInvariant using the same
-semantics as DProvenanceKit Phase 0 and CaseClarity Phase 1A:
+semantics as DProvenanceKit Phase 1C (``VerificationReceiptProjector`` /
+``VerificationInvariant.evaluate``) and CaseClarity Phase 1A:
 
   1. Integrity failure (any of evidence/trace/files_unchanged false) → tampered
+     (takes precedence over incomplete)
   2. Else invariant failure (required_steps / must_include / ordering) → incomplete
   3. Else → verified
+
+Canonical invariant: ``claim-path-v1``. Reason strings match DPK goldens.
 
 JSON Schema validates structure only. This evaluator + integrity flags decide
 status. Verified means integrity-protected provenance satisfied the declared
 invariant — not that the claim text is objectively true.
 
 Standard library only. Invoked by ``action.yml`` when ``gate-mode=receipt``.
+Does not affect ``gate-mode=path``.
 """
 
 from __future__ import annotations
@@ -87,9 +92,10 @@ def evaluate_invariant(
 
     for step in must_include:
         if step not in types:
+            # Same reason pattern as required_steps / DPK VerificationInvariant.evaluate
             return (
                 False,
-                f"must_include step {step} is missing; {inv_id} invariant is not satisfied.",
+                f"Required step type {step} is missing; {inv_id} invariant is not satisfied.",
             )
 
     for constraint in ordering:
@@ -165,7 +171,10 @@ def evaluate_receipt(
         reason = invariant_reason or "Invariant not satisfied."
     else:
         status = "verified"
-        reason = "Required steps occurred in order and integrity checks passed."
+        reason = (
+            "Required steps occurred in the required order and "
+            "cryptographic integrity checks passed."
+        )
 
     # Prefer fixture/projection status_reason when recomputed status matches.
     if declared_str == status and receipt.get("status_reason"):
