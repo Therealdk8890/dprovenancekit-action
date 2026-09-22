@@ -12,8 +12,10 @@ This action gates your pull requests on that record in two complementary modes:
 
 Both modes post a sticky PR comment with the verdict. The path gate wraps the
 server-less `dprovenancekit gate` CLI (**no hosted DProvenanceKit backend**).
-The receipt gate is **stdlib-only** and vendors Phase 0 fixtures/schemas from
-[DProvenanceKit](https://github.com/Therealdk8890/DProvenanceKit). This is an
+The receipt gate is **stdlib-only** and vendors Phase 0/1C golden vectors and
+schemas from
+[DProvenanceKit](https://github.com/Therealdk8890/DProvenanceKit) (evaluator
+aligned to Phase 1C `VerificationReceiptProjector`). This is an
 **attestation / provenance** gate — not an observability dashboard rival.
 
 <!-- synthetic-regression-quickstart -->
@@ -38,9 +40,11 @@ Keep LangSmith for dashboards; add this gate for execution-path regressions. Dee
 
 <!-- /synthetic-regression-quickstart -->
 
-## Verification Receipt gate (Phase 1B)
+## Verification Receipt gate (Phase 1B + 1C sync)
 
-Same status vocabulary as DProvenanceKit Phase 0 and CaseClarity Phase 1A:
+Same status vocabulary and golden vectors as DProvenanceKit Phase 1C
+(`claim-path-v1` projector) and CaseClarity Phase 1A. Precedence:
+**tampered > incomplete > verified**.
 
 | Status | Meaning | Default CI |
 | --- | --- | --- |
@@ -55,13 +59,16 @@ JSON Schema validates structure only. The Action recomputes status from
 integrity flags + invariant evaluation (`required_steps` / `must_include` /
 `ordering`) — it does not trust a receipt's `status` field blindly.
 
-### Scoreboard (vendored fixtures)
+### Scoreboard (vendored fixtures from DPK Phase 1C)
 
 | Fixture | Gate |
 | --- | --- |
 | `fixtures/verification-receipt/verified.json` | PASS |
 | `fixtures/verification-receipt/incomplete.json` | FAIL |
 | `fixtures/verification-receipt/tampered.json` | FAIL |
+
+Vectors and schemas are re-synced from `Therealdk8890/DProvenanceKit` main
+(Phase 1C merge #119); see `fixtures/verification-receipt/SYNC_SOURCE.md`.
 
 Workflow: **Actions → “Verification Receipt gate demo”** (also runs on PRs).
 
@@ -100,11 +107,13 @@ python -m unittest tests.test_receipt_gate -v
 ```
 
 Fixtures and schemas under `fixtures/verification-receipt/` are vendored from
-`Therealdk8890/DProvenanceKit` main — see `fixtures/verification-receipt/SYNC_SOURCE.md`.
+`Therealdk8890/DProvenanceKit` main (Phase 1C goldens) — see
+`fixtures/verification-receipt/SYNC_SOURCE.md`.
 Do not invent a second status vocabulary or expand step types beyond
 `evidence | extract | verify | claim`.
 
-The receipt gate **complements** the path-regression gate; it does not replace it.
+The receipt gate **complements** the path-regression gate (`gate-mode: path`);
+it does not replace it.
 
 ## Recommended pins
 
