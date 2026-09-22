@@ -1,0 +1,137 @@
+name: Observability contrast demo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contrast:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/observability-contrast
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install DPK (Action install-spec pin)
+        run: python -m pip install --disable-pip-version-check 'dprovenancekit==0.7.0'
+
+      - name: Record baseline + regressed traces
+        run: python record_traces.py
+
+      - name: Mock observability + LLM-eval on regressed run (expect PASS)
+        id: mocks
+        run: |
+          set -euo pipefail
+          ANSWER=$(python -c "from agent import run_regressed; print(run_regressed())")
+          echo "regressed_answer=$ANSWER"
+          python mock_observability.py "$ANSWER"
+          python mock_llm_eval.py "$ANSWER"
+          BASE=$(python -c "from agent import run_baseline; print(run_baseline())")
+          python mock_observability.py "$BASE"
+          python mock_llm_eval.py "$BASE"
+          echo "passed=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Mock checkers (regressed run that dropped verify)"
+            echo ""
+            echo "- Output / HTTP / fake-trace: **PASS**"
+            echo "- LLM eval (answer looks plausible): **PASS**"
+            echo "- Answer: \`$ANSWER\`"
+            echo ""
+            echo "Mocks stayed green. Next steps show DPK FAIL."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: DPK path gate — baseline (must PASS)
+        id: path_ok
+        uses: ./
+        with:
+          gate-mode: path
+          db-path: examples/observability-contrast/demo-traces.sqlite
+          golden-context: golden
+          candidate-context: baseline
+          comment: "false"
+
+      - name: Assert baseline path gate passed
+        run: |
+          echo "passed=${{ steps.path_ok.outputs.passed }} level=${{ steps.path_ok.outputs.regression-level }}"
+          test "${{ steps.path_ok.outputs.passed }}" = "true"
+
+      - name: DPK Verification Receipt — verified fixture (must PASS)
+        id: receipt_ok
+        uses: ./
+        with:
+          gate-mode: receipt
+          receipt-path: fixtures/verification-receipt/verified.json
+          comment: "false"
+
+      - name: Assert verified receipt passed
+        run: |
+          echo "status=${{ steps.receipt_ok.outputs.receipt-status }} passed=${{ steps.receipt_ok.outputs.passed }}"
+          test "${{ steps.receipt_ok.outputs.passed }}" = "true"
+          test "${{ steps.receipt_ok.outputs.receipt-status }}" = "verified"
+
+      - name: DPK path gate — regressed / verify dropped (capture FAIL for scoreboard)
+        id: path_bad
+        uses: ./
+        with:
+          gate-mode: path
+          db-path: examples/observability-contrast/demo-traces.sqlite
+          golden-context: golden
+          candidate-context: regressed
+          comment: "false"
+          # Keep alive so the scoreboard can print the contrast, then fail below.
+          fail-on-regression: "false"
+
+      - name: DPK Verification Receipt — incomplete / verify missing (capture FAIL)
+        id: receipt_bad
+        uses: ./
+        with:
+          gate-mode: receipt
+          receipt-path: fixtures/verification-receipt/incomplete.json
+          comment: "false"
+          fail-on-receipt: "false"
+
+      - name: Print five-row scoreboard (mocks PASS, DPK FAIL)
+        run: |
+          {
+            echo "### Observability-PASS / DPK-FAIL scoreboard"
+            echo ""
+            echo "| Check | Baseline | Regressed (verify dropped) |"
+            echo "| --- | --- | --- |"
+            echo "| Output test | PASS | PASS |"
+            echo "| LLM eval | PASS | PASS |"
+            echo "| Mock OTel/LangSmith-style | PASS | PASS |"
+            echo "| DPK path gate | ${{ steps.path_ok.outputs.passed }} | **${{ steps.path_bad.outputs.passed }}** (expect false) |"
+            echo "| DPK Verification Receipt | ${{ steps.receipt_ok.outputs.passed }} (${{ steps.receipt_ok.outputs.receipt-status }}) | **${{ steps.receipt_bad.outputs.passed }}** (${{ steps.receipt_bad.outputs.receipt-status }}) |"
+            echo ""
+            echo "Mocks stayed green. DPK caught the missing \`verify\`."
+            echo "Verified ≠ claim true. Path/provenance control complements LangSmith."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          test "${{ steps.mocks.outputs.passed }}" = "true"
+          test "${{ steps.path_ok.outputs.passed }}" = "true"
+          test "${{ steps.receipt_ok.outputs.passed }}" = "true"
+          test "${{ steps.path_bad.outputs.passed }}" = "false"
+          test "${{ steps.receipt_bad.outputs.passed }}" = "false"
+          python run_scoreboard.py
+
+      - name: Fail the job — DPK path gate (customer posture)
+        # After the log has shown mocks PASS + scoreboard, re-run with
+        # fail-on-regression so the Action itself fails the job. That red X
+        # is the product: sell the failure, not the cryptography.
+        uses: ./
+        with:
+          gate-mode: path
+          db-path: examples/observability-contrast/demo-traces.sqlite
+          golden-context: golden
+          candidate-context: regressed
+          comment: "false"
+          fail-on-regression: "true"
