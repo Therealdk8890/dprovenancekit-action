@@ -18,27 +18,28 @@ schemas from
 aligned to Phase 1C `VerificationReceiptProjector`). This is an
 **attestation / provenance** gate — not an observability dashboard rival.
 
-<!-- synthetic-regression-quickstart -->
-## 60-second proof (fork this)
+<!-- observability-contrast-quickstart -->
+## 60-second proof — why not just observability?
 
-**Category:** regression testing for AI agent execution paths.
+**Category:** path/provenance control complementary to LangSmith (not a dashboard rival).
 
-Same bug, four checkers:
+Sell the *failure*: the agent run looks successful, ordinary checkers stay green, and DPK is the one that goes red when `verify` is dropped.
 
-| Check | Result |
-| --- | --- |
-| Output test | PASS |
-| LLM eval | PASS |
-| OTel / LangSmith | PASS |
-| **DProvenanceKit path gate** | **FAIL — `verify` dropped** |
+| Check | Baseline | Regressed (verify dropped) |
+| --- | --- | --- |
+| Output test | PASS | PASS |
+| LLM eval | PASS | PASS |
+| Mock OTel/LangSmith-style | PASS | PASS |
+| **DPK path gate** | PASS | **FAIL** |
+| **DPK Verification Receipt** | PASS | **FAIL (incomplete)** |
 
-1. **Actions → “Synthetic regression demo” → Run workflow** (or push to `main`).
-2. CI gates a matching run (**pass**), then a run that drops `verify` (**fail**).
-3. Read [`examples/synthetic-regression/`](examples/synthetic-regression/) — intentional bug in `agent.py`.
+1. Local: `pip install 'dprovenancekit==0.7.0' && python examples/observability-contrast/run_scoreboard.py`
+2. CI: **Actions → “Observability contrast demo”** — log shows mock PASSes, then DPK fails the job (that red X is the demo).
+3. Read [`examples/observability-contrast/`](examples/observability-contrast/) — founder one-pager + scoreboard.
 
-Keep LangSmith for dashboards; add this gate for execution-path regressions. Deeper layer (attestation / audit proof): [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
+Crypto / Verification Receipt is the secondary evidence layer (same missing-`verify` story as attestation). Sister green meta-demo: [`examples/synthetic-regression/`](examples/synthetic-regression/). Deeper compare: [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
 
-<!-- /synthetic-regression-quickstart -->
+<!-- /observability-contrast-quickstart -->
 
 ## Verification Receipt gate (Phase 1B + 1C sync)
 
