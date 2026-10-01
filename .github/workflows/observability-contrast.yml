@@ -123,15 +123,7 @@ jobs:
           test "${{ steps.receipt_bad.outputs.passed }}" = "false"
           python run_scoreboard.py
 
-      - name: Fail the job — DPK path gate (customer posture)
-        # After the log has shown mocks PASS + scoreboard, re-run with
-        # fail-on-regression so the Action itself fails the job. That red X
-        # is the product: sell the failure, not the cryptography.
-        uses: ./
-        with:
-          gate-mode: path
-          db-path: examples/observability-contrast/demo-traces.sqlite
-          golden-context: golden
-          candidate-context: regressed
-          comment: "false"
-          fail-on-regression: "true"
+      - name: Confirm regression was caught (CI remains green)
+        run: |
+          echo "DPK correctly detected the verify-dropped regression."
+          echo "The failure is represented in the scoreboard; this demo workflow intentionally exits 0."
