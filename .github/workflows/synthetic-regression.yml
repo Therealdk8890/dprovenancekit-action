@@ -31,7 +31,7 @@ jobs:
 
       - name: Gate matching candidate (must PASS)
         id: gate_ok
-        uses: Therealdk8890/dprovenancekit-action@v1
+        uses: ./
         with:
           db-path: examples/synthetic-regression/demo-traces.sqlite
           golden-context: golden
@@ -45,7 +45,7 @@ jobs:
 
       - name: Gate regressed candidate that dropped verify (must FAIL the gate)
         id: gate_bad
-        uses: Therealdk8890/dprovenancekit-action@v1
+        uses: ./
         with:
           db-path: examples/synthetic-regression/demo-traces.sqlite
           golden-context: golden
