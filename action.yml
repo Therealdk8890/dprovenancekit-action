@@ -159,6 +159,24 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Mask before any later step can accidentally print environment/configuration
+    # containing the customer-provided credential.
+    - name: Mask cloud API key
+      if: ${{ inputs.cloud-api-key != '' }}
+      shell: bash
+      env:
+        DPROV_CLOUD_API_KEY: ${{ inputs.cloud-api-key }}
+      run: |
+        python - <<'PY'
+        import os
+        key = os.environ.get("DPROV_CLOUD_API_KEY", "")
+        if key:
+            # Escape GitHub workflow-command control characters before passing
+            # secret material to the runner's command parser.
+            escaped = key.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::add-mask::{escaped}")
+        PY
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
