@@ -194,7 +194,7 @@ runs:
       if: ${{ inputs.gate-mode != 'receipt' }}
       shell: bash
       run: |
-        if [ -z "${{ inputs.db-path }}" ]; then
+        if [ -z "$DPROV_DB" ]; then
           echo "::error title=DProvenanceKit::db-path is required when gate-mode=path"
           exit 2
         fi
