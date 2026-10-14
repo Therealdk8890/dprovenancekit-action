@@ -33,7 +33,7 @@ Sell the *failure*: the agent run looks successful, ordinary checkers stay green
 | **DPK path gate** | PASS | **FAIL** |
 | **DPK Verification Receipt** | PASS | **FAIL (incomplete)** |
 
-1. Local: `pip install 'dprovenancekit==0.7.0' && python examples/observability-contrast/run_scoreboard.py`
+1. Local: `pip install 'dprovenancekit==0.7.1' && python examples/observability-contrast/run_scoreboard.py`
 2. CI: **Actions → “Observability contrast demo”** — log shows mock PASSes, then DPK fails the job (that red X is the demo).
 3. Read [`examples/observability-contrast/`](examples/observability-contrast/) — founder one-pager + scoreboard.
 
