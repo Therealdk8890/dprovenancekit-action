@@ -24,13 +24,11 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
-
-# Unlikely delimiter for $GITHUB_OUTPUT multiline (heredoc) format.
-_DELIM = "__DPROV_RECEIPT_EOF__"
 
 # Canonical step types (do not expand).
 _STEP_TYPES = frozenset({"evidence", "extract", "verify", "claim"})
@@ -92,7 +90,6 @@ def evaluate_invariant(
 
     for step in must_include:
         if step not in types:
-            # Same reason pattern as required_steps / DPK VerificationInvariant.evaluate
             return (
                 False,
                 f"Required step type {step} is missing; {inv_id} invariant is not satisfied.",
@@ -209,12 +206,28 @@ def gate_should_pass(status: str, fail_on: Iterable[str]) -> bool:
     return status not in set(fail_on)
 
 
+def _fresh_delimiter(value: str) -> str:
+    """Return a random GitHub output delimiter absent from the value's lines.
+
+    GitHub's multiline output syntax ends a value when a line exactly matches its
+    delimiter. Receipt-derived values are untrusted, so a fixed delimiter could let
+    a crafted receipt inject forged step outputs such as passed=true.
+    """
+    lines = value.splitlines()
+    while True:
+        delimiter = f"ghadelimiter_{secrets.token_hex(16)}"
+        if delimiter not in lines:
+            return delimiter
+
+
 def write_outputs(pairs: Sequence[tuple[str, str]], path: str | None) -> None:
     if not path:
         return
     with open(path, "a", encoding="utf-8") as fh:
         for key, value in pairs:
-            fh.write(f"{key}<<{_DELIM}\n{value}\n{_DELIM}\n")
+            value = str(value)
+            delimiter = _fresh_delimiter(value)
+            fh.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
 
 
 def render_outputs(result: EvaluationResult, passed: bool) -> list[tuple[str, str]]:
@@ -236,7 +249,6 @@ def render_outputs(result: EvaluationResult, passed: bool) -> list[tuple[str, st
         ("receipt-invariant-id", result.invariant_id),
         ("report-json", json.dumps(report)),
         ("summary", f"Verification Receipt: {result.status} ({result.invariant_id}) — {result.reason}"),
-        # Path-gate outputs left empty / neutral so composite outputs stay defined.
         ("regression-level", "none"),
     ]
 
@@ -296,8 +308,6 @@ def main(env: Mapping[str, str] | None = None) -> int:
             fh.write(f"- **Passed:** `{str(passed).lower()}`\n")
             fh.write(f"- **Reason:** {result.reason}\n")
 
-    # Do not exit non-zero on configured fail statuses — action.yml enforces
-    # after the PR comment step, matching the path-gate pattern.
     return 0
 
 
