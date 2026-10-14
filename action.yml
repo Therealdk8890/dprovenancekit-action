@@ -167,7 +167,9 @@ runs:
     - name: Install dprovenancekit
       if: ${{ inputs.gate-mode != 'receipt' }}
       shell: bash
-      run: python -m pip install --disable-pip-version-check "${{ inputs.install-spec }}"
+      env:
+        DPROV_INSTALL_SPEC: ${{ inputs.install-spec }}
+      run: python -m pip install --disable-pip-version-check "$DPROV_INSTALL_SPEC"
 
     - name: Run regression gate
       id: gate
