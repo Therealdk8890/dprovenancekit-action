@@ -61,7 +61,7 @@ def _api(method, url, token, payload=None):
             "User-Agent": "dprovenancekit-verification-receipt-gate",
         },
     )
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=10) as resp:
         body = resp.read()
         return resp.status, (json.loads(body) if body else None)
 
