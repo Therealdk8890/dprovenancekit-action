@@ -27,7 +27,7 @@ jobs:
 
       - name: Gate candidate against golden (context selection, the published action path)
         id: gate
-        uses: Therealdk8890/dprovenancekit-action@v1
+        uses: ./
         with:
           db-path: smoke-traces.sqlite
           golden-context: golden
@@ -41,7 +41,7 @@ jobs:
 
       - name: Gate a regressed candidate against golden (must FAIL the gate)
         id: gate_fail
-        uses: Therealdk8890/dprovenancekit-action@v1
+        uses: ./
         with:
           db-path: smoke-traces.sqlite
           golden-context: golden
