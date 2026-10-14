@@ -130,7 +130,9 @@ def _run_receipt_gate(receipt_path: Path) -> tuple[bool, str]:
         out_path = fh.name
     env = dict(os.environ)
     env["DPROV_RECEIPT_PATH"] = str(receipt_path)
-    env["DPROV_FAIL_ON_RECEIPT"] = "false"
+    # The gate reports failure in GITHUB_OUTPUT; the action enforces it later.
+    # Keep the scoreboard's intended default: incomplete/tampered receipts fail.
+    env["DPROV_FAIL_ON_RECEIPT_STATUSES"] = "incomplete,tampered"
     env["GITHUB_OUTPUT"] = out_path
     subprocess.run(
         [sys.executable, str(RECEIPT_GATE)],
