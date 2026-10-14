@@ -125,7 +125,7 @@ it does not replace it.
   # uses: Therealdk8890/dprovenancekit-action@v1          # floating major — OK for demos
   ```
 - **PyPI package:** the Action default `install-spec` is
-  **`dprovenancekit==0.7.0`** (core gate; crypto extra not required for gating).
+  **`dprovenancekit==0.7.1`** (core gate; crypto extra not required for gating).
   Override only for deliberate upgrades.
 
 ## Usage
@@ -157,7 +157,7 @@ jobs:
           candidate-context: candidate  # (or pass golden-run-id / candidate-run-id)
           max-level: none          # strict: any divergence fails
           # allow-divergent: true  # tolerate per-step changes, gate only on severity
-          # install-spec: dprovenancekit==0.7.0   # already the Action default
+          # install-spec: dprovenancekit==0.7.1   # already the Action default
 ```
 
 ## Inputs
@@ -182,7 +182,7 @@ jobs:
 | `comment` | `true` | Post a sticky summary comment on the PR. |
 | `anomaly-rules` | `""` | Path to a JSON rules config. When set, runs the out-of-the-box anomaly rules over the candidate run. |
 | `fail-on-anomaly` | `false` | Fail the job when an anomaly rule fires. |
-| `install-spec` | `dprovenancekit==0.7.0` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
+| `install-spec` | `dprovenancekit==0.7.1` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
 | `python-version` | `3.x` | Python to set up. |
 | `cloud-mode` | `off` | Customer **BYO** cloud ingest only: `off` \| `optional` \| `required`. There is **no** DProvenanceKit-hosted service. |
 | `cloud-url` | `""` | Customer-supplied cloud base URL. **Required** when `cloud-mode` is not `off` (fail closed if empty — no default host). |
