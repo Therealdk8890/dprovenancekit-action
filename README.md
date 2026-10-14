@@ -186,7 +186,7 @@ jobs:
 | `python-version` | `3.x` | Python to set up. |
 | `cloud-mode` | `off` | Customer **BYO** cloud ingest only: `off` \| `optional` \| `required`. There is **no** DProvenanceKit-hosted service. |
 | `cloud-url` | `""` | Customer-supplied cloud base URL. **Required** when `cloud-mode` is not `off` (fail closed if empty — no default host). |
-| `cloud-api-key` | `""` | API key for BYO cloud ingestion. |
+| `cloud-api-key` | `""` | API key for BYO cloud ingestion. Pass it via a GitHub Actions secret, never a literal value. The action masks it before other steps run. |
 | `project-id` | `""` | Project ID for BYO cloud ingest. |
 | `promote-baseline` | `false` | If true and the gate passes, attempt BYO baseline promotion (still requires `cloud-url` + key + project). |
 | `default-branch` | `main` | Default branch name used to enforce baseline promotion eligibility. |
@@ -194,6 +194,20 @@ jobs:
 | `artifact-paths` | `[]` | JSON array of paths to upload to the BYO cloud endpoint. |
 | `upload-trace-database` | `false` | Upload the SQLite trace database as a CI artifact. |
 | `github-token` | `${{ github.token }}` | Token used to post the comment. |
+
+### Cloud credential handling
+
+When cloud ingest is enabled, pass the API key through the calling workflow's secret context:
+
+```yaml
+with:
+  cloud-mode: required
+  cloud-url: ${{ vars.DPROV_CLOUD_URL }}
+  cloud-api-key: ${{ secrets.DPROV_CLOUD_API_KEY }}
+  project-id: ${{ vars.DPROV_PROJECT_ID }}
+```
+
+Do not hard-code credentials in workflow YAML or pass them as ordinary literal inputs. The composite action registers a non-empty key with GitHub Actions masking before its other steps run. Masking is a defense-in-depth log safeguard, not a substitute for storing the key as a secret.
 
 ## Outputs
 
