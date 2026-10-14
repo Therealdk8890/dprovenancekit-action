@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-import receipt_gate
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+import receipt_gate  # noqa: E402
 
 
 class TestReceiptOutputDelimiter(unittest.TestCase):
