@@ -119,7 +119,7 @@ it does not replace it.
 ## Recommended pins
 
 - **Action:** pin to a **commit SHA** (preferred for supply-chain review) or a
-  release tag such as `@v1.1.1` / `@v1`. Avoid floating `@main`.
+  release tag such as `@v1.1.2` / `@v1`. Avoid floating `@main`.
   ```yaml
   uses: Therealdk8890/dprovenancekit-action@<commit-sha>   # preferred
   # uses: Therealdk8890/dprovenancekit-action@v1          # floating major — OK for demos
