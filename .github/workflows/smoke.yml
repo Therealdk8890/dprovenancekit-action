@@ -40,8 +40,9 @@ jobs:
 
       - name: Assert the gate passed
         run: |
-          echo "passed=${{ steps.gate.outputs.passed }} level=${{ steps.gate.outputs.regression-level }}"
+          echo "passed=${{ steps.gate.outputs.passed }} level=${{ steps.gate.outputs.regression-level }} findings=${{ steps.gate.outputs.finding-count }}"
           test "${{ steps.gate.outputs.passed }}" = "true"
+          test "${{ steps.gate.outputs.finding-count }}" = "0"
 
       - name: Gate a regressed candidate against golden (must FAIL the gate)
         id: gate_fail
@@ -57,5 +58,6 @@ jobs:
 
       - name: Assert the gate failed on the regression
         run: |
-          echo "passed=${{ steps.gate_fail.outputs.passed }} level=${{ steps.gate_fail.outputs.regression-level }}"
+          echo "passed=${{ steps.gate_fail.outputs.passed }} level=${{ steps.gate_fail.outputs.regression-level }} findings=${{ steps.gate_fail.outputs.finding-count }}"
           test "${{ steps.gate_fail.outputs.passed }}" = "false"
+          test "${{ steps.gate_fail.outputs.finding-count }}" != "0"
