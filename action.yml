@@ -140,6 +140,12 @@ outputs:
   report-json:
     description: "Full gate report as a JSON string."
     value: ${{ steps.gate.outputs.report-json || steps.receipt.outputs.report-json }}
+  finding-count:
+    description: "Number of engine-reported regression findings (path mode)."
+    value: ${{ steps.gate.outputs.finding-count || '0' }}
+  findings-json:
+    description: "Versioned Regression Intelligence v1 findings and reason codes (path mode)."
+    value: ${{ steps.gate.outputs.findings-json || '{}' }}
   anomaly-count:
     description: "Number of anomalies the rules fired on (0 when anomaly-rules is unset)."
     value: "${{ steps.anomalies.outputs.anomaly-count || '0' }}"

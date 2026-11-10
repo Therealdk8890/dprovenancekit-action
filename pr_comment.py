@@ -20,8 +20,13 @@ import urllib.request
 # Hidden HTML marker that identifies our comment so re-runs update it in place.
 _MARKER = "<!-- dprovenancekit-regression-gate -->"
 
-# Per-step change kinds worth surfacing, in a stable display order.
+# Legacy fallback for reports produced before Regression Intelligence v1.
 _CHANGE_ORDER = ("removed", "added", "reordered", "ambiguous")
+
+
+def _cell(value):
+    """Collapse newlines and escape Markdown table separators in trace-derived values."""
+    return str(value).replace("\r", " ").replace("\n", " ").replace("|", "\\|")
 
 
 def render_comment(report):
@@ -43,13 +48,39 @@ def render_comment(report):
         f"- **Fingerprint:** {'match' if fp_match else 'differs'}",
     ]
 
-    changes = report.get("steps_by_change") or {}
-    rows = [(kind, changes[kind]) for kind in _CHANGE_ORDER if changes.get(kind)]
-    if rows:
-        lines += ["", "| change | steps |", "| --- | --- |"]
-        lines += [f"| {kind} | {', '.join(steps)} |" for kind, steps in rows]
+    intelligence = report.get("regression_intelligence")
+    if intelligence:
+        counts = intelligence.get("counts") or {}
+        lines += [
+            "",
+            "### Regression Intelligence v1",
+            "",
+            f"- **Divergences:** {counts.get('divergence', 0)}",
+            f"- **Accepted equivalences:** {counts.get('informational', 0)}",
+            f"- **Review required:** {'yes' if intelligence.get('review_required') else 'no'}",
+        ]
+        findings = intelligence.get("findings") or []
+        if findings:
+            lines += ["", "| reason code | step | disposition |", "| --- | --- | --- |"]
+            lines += [
+                f"| `{_cell(item.get('reason_code', ''))}` | "
+                f"{_cell(item.get('step_identifier', ''))} | "
+                f"{_cell(item.get('disposition', ''))} |"
+                for item in findings
+            ]
+        else:
+            lines.append("- No per-step findings.")
     else:
-        lines.append("- No per-step changes (all exact matches).")
+        changes = report.get("steps_by_change") or {}
+        rows = [(kind, changes[kind]) for kind in _CHANGE_ORDER if changes.get(kind)]
+        if rows:
+            lines += ["", "| change | steps |", "| --- | --- |"]
+            lines += [
+                f"| {kind} | {', '.join(_cell(step) for step in steps)} |"
+                for kind, steps in rows
+            ]
+        else:
+            lines.append("- No per-step changes (all exact matches).")
 
     reasoning = report.get("reasoning")
     if reasoning:

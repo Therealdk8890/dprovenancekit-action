@@ -216,7 +216,9 @@ Do not hard-code credentials in workflow YAML or pass them as ordinary literal i
 | `passed` | `true` when the active gate passed. |
 | `regression-level` | Engine-assessed severity (`none` \| `low` \| `medium` \| `high`) in path mode. |
 | `summary` | Human-readable gate summary. |
-| `report-json` | Full gate report as a JSON string. |
+| `report-json` | Full gate report as a JSON string, including `regression_intelligence` when path mode runs. |
+| `finding-count` | Number of engine-reported divergences in path mode. |
+| `findings-json` | Versioned `dpk.regression-intelligence.v1` findings, reason codes, counts, and review flag. |
 | `anomaly-count` | Number of anomalies the rules fired on (`0` when `anomaly-rules` is unset). |
 | `anomalies-json` | Anomaly findings as a JSON string (`{}` when `anomaly-rules` is unset). |
 | `receipt-status` | Recomputed status (`verified` \| `incomplete` \| `tampered`) in receipt mode. |
@@ -235,6 +237,16 @@ optional `cloud-*` inputs exist only so a customer can point the Action at
   the Action will not invent `https://api.dprovenance.dev` or any other host.
 - `optional` still skips on missing API key / project id / transport errors
   (warn only); `required` fails the job on those failures.
+
+## Regression Intelligence v1
+
+Path mode adds a versioned `regression_intelligence` object to `report-json` and exposes
+`finding-count` / `findings-json`. It normalizes the SDK gate's structured
+`steps_by_change` output into stable reason codes (`STEP_REMOVED`, `STEP_ADDED`,
+`STEP_REORDERED`, `AMBIGUOUS_ALIGNMENT`, and
+`SEMANTIC_EQUIVALENCE_ACCEPTED`). It does not compare traces again, infer truth, or
+override the SDK's verdict. Unknown future change kinds are retained as
+`UNCLASSIFIED_CHANGE` and set `review_required=true`.
 
 ## Anomaly rules
 

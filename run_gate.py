@@ -21,7 +21,10 @@ import os
 import subprocess
 import sys
 import hashlib
+import secrets
 from dataclasses import dataclass
+
+from regression_intelligence import build_intelligence, render_summary
 
 @dataclass
 class IngestResult:
@@ -63,10 +66,6 @@ def normalize_export_event(row: dict) -> dict:
 
 import urllib.request
 import urllib.error
-
-# An unlikely delimiter for the $GITHUB_OUTPUT multiline (heredoc) format.
-_DELIM = "__DPROV_OUTPUT_EOF__"
-
 
 def resolve_run(env, run_key, context_key, db, run=subprocess.run):
     """The run id for one side: explicit, or the newest run for its context id.
@@ -126,6 +125,18 @@ def render_outputs(report):
         ("regression-level", str(report.get("regression_level", ""))),
         ("summary", report.get("summary", "")),
         ("report-json", json.dumps(report)),
+        (
+            "finding-count",
+            str(report.get("regression_intelligence", {}).get("counts", {}).get("divergence", 0)),
+        ),
+        (
+            "findings-json",
+            json.dumps(
+                report.get("regression_intelligence") or build_intelligence(report),
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        ),
     ]
 
 
@@ -135,7 +146,11 @@ def write_outputs(pairs, path):
         return
     with open(path, "a", encoding="utf-8") as fh:
         for key, value in pairs:
-            fh.write(f"{key}<<{_DELIM}\n{value}\n{_DELIM}\n")
+            value = str(value)
+            delimiter = f"__DPROV_{secrets.token_hex(16)}__"
+            while delimiter in value:
+                delimiter = f"__DPROV_{secrets.token_hex(16)}__"
+            fh.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
 
 
 def ingest_run(env, db_path, run_id, report) -> IngestResult:
@@ -322,6 +337,14 @@ def main(env=None):
         print("error: gate did not emit a JSON report", file=sys.stderr)
         return 2
 
+    # Normalize only the engine's structured report. This layer never re-aligns traces
+    # or recomputes severity; it adds stable reason codes for downstream CI consumers.
+    try:
+        report["regression_intelligence"] = build_intelligence(report)
+    except (TypeError, ValueError) as exc:
+        print(f"error: invalid structured gate report: {exc}", file=sys.stderr)
+        return 2
+
     # Ingest candidate run to cloud if configured
     ingest_result = ingest_run(env, candidate_db, candidate, report)
     if ingest_result.viewer_url:
@@ -335,6 +358,7 @@ def main(env=None):
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as fh:
             fh.write("### DProvenanceKit regression gate\n\n```\n" + summary + "\n```\n")
+            fh.write("\n" + render_summary(report["regression_intelligence"]))
             if ingest_result.viewer_url:
                 fh.write(f"\n[🔍 View full regression trace in DProvenance Cloud]({ingest_result.viewer_url})\n")
     
