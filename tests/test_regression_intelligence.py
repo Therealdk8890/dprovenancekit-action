@@ -92,24 +92,49 @@ class TestRegressionIntelligence(unittest.TestCase):
         self.assertEqual(result["counts"]["divergence"], 1)
 
     def test_malformed_engine_report_fails_closed(self):
+        malformed = [
+            {"passed": "false"},
+            {"steps_by_change": "verify"},
+            {"steps_by_change": None},
+            {"steps_by_change": []},
+            {"steps_by_change": {"removed": "verify"}},
+            {"regression_level": "unknown"},
+        ]
+        for override in malformed:
+            with self.subTest(override=override), self.assertRaises(ValueError):
+                regression_intelligence.build_intelligence(sample_report(**override))
+        missing = sample_report()
+        del missing["steps_by_change"]
         with self.assertRaises(ValueError):
-            regression_intelligence.build_intelligence(sample_report(passed="false"))
-        with self.assertRaises(ValueError):
-            regression_intelligence.build_intelligence(
-                sample_report(steps_by_change={"removed": "verify"})
-            )
-        with self.assertRaises(ValueError):
-            regression_intelligence.build_intelligence(
-                sample_report(regression_level="unknown")
-            )
+            regression_intelligence.build_intelligence(missing)
 
     def test_summary_escapes_trace_derived_markdown_cells(self):
+        hostile = "<img src=x onerror=alert(1)> | `<script>`\nforged"
         result = regression_intelligence.build_intelligence(
-            sample_report(steps_by_change={"removed": ["step|\nforged"]})
+            sample_report(steps_by_change={"removed": [hostile]})
         )
         summary = regression_intelligence.render_summary(result)
-        self.assertIn("step\\| forged", summary)
+        self.assertIn("&lt;img", summary)
+        self.assertIn("&#124;", summary)
+        self.assertIn("&#96;", summary)
+        self.assertNotIn("<script>", summary)
         self.assertNotIn("\nforged", summary)
+
+    def test_pr_comment_escapes_trace_derived_prose_and_table_cells(self):
+        intelligence = regression_intelligence.build_intelligence(sample_report(
+            steps_by_change={"removed": ["<svg onload=alert(1)> | `x`"]}
+        ))
+        body = pr_comment.render_comment(sample_report(
+            regression_intelligence=intelligence,
+            reasoning="look <img src=x> `*not formatting*`\nforged",
+            viewer_url="https://example.test/)(<script>",
+        ))
+        self.assertIn("&lt;svg", body)
+        self.assertIn("&lt;img", body)
+        self.assertIn("&#96;", body)
+        self.assertNotIn("<script>", body)
+        self.assertNotIn("\nforged", body)
+        self.assertNotIn("](https://example.test", body)
 
     def test_action_outputs_include_versioned_intelligence(self):
         result = regression_intelligence.build_intelligence(sample_report())

@@ -11,22 +11,29 @@ than failing the job. Standard library only (``urllib``), matching ``server/dpro
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 
-# Hidden HTML marker that identifies our comment so re-runs update it in place.
 _MARKER = "<!-- dprovenancekit-regression-gate -->"
-
-# Legacy fallback for reports produced before Regression Intelligence v1.
 _CHANGE_ORDER = ("removed", "added", "reordered", "ambiguous")
+_MARKDOWN_META = re.compile(r"([\\`*_{}\[\]()#+.!|>~-])")
 
 
 def _cell(value):
-    """Collapse newlines and escape Markdown table separators in trace-derived values."""
-    return str(value).replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+    """Render trace-derived values as inert Markdown table-cell content."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return html.escape(text, quote=True).replace("|", "&#124;").replace("`", "&#96;")
+
+
+def _safe_inline(value):
+    """Escape trace-derived prose so it cannot add Markdown structure or HTML."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return _MARKDOWN_META.sub(r"\\\1", html.escape(text, quote=True))
 
 
 def render_comment(report):
@@ -43,8 +50,8 @@ def render_comment(report):
         "",
         badge,
         "",
-        f"- **Severity:** {level} (strength {strength:.2f}); "
-        f"max allowed: {report.get('max_regression_level', 'none')}",
+        f"- **Severity:** {_cell(level)} (strength {strength:.2f}); "
+        f"max allowed: {_cell(report.get('max_regression_level', 'none'))}",
         f"- **Fingerprint:** {'match' if fp_match else 'differs'}",
     ]
 
@@ -84,12 +91,13 @@ def render_comment(report):
 
     reasoning = report.get("reasoning")
     if reasoning:
-        lines += ["", f"_{reasoning}_"]
-        
+        lines += ["", _safe_inline(reasoning)]
+
     viewer_url = report.get("viewer_url")
     if viewer_url:
-        lines += ["", f"[🔍 View full regression trace in DProvenance Cloud]({viewer_url})"]
-        
+        # Treat the URL as plain escaped text rather than interpolating it into Markdown.
+        lines += ["", f"Viewer URL: {_cell(viewer_url)}"]
+
     return "\n".join(lines)
 
 
@@ -169,4 +177,3 @@ def main(env=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

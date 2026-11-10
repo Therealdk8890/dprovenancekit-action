@@ -6,7 +6,9 @@ engine's structured steps_by_change output into a versioned CI finding envelope.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
+import re
 from collections import Counter
 from typing import Any, Mapping
 
@@ -19,6 +21,7 @@ _CHANGE_DEFINITIONS = {
     "ambiguous": ("AMBIGUOUS_ALIGNMENT", "divergence", "The engine could not establish an unambiguous match."),
     "semanticMatch": ("SEMANTIC_EQUIVALENCE_ACCEPTED", "accepted_equivalence", "The configured evaluator accepted the changed step as equivalent."),
 }
+_MARKDOWN_META = re.compile(r"([\\`*_{}\[\]()#+.!|>~-])")
 
 
 def _required_string(report: Mapping[str, Any], key: str) -> str:
@@ -29,7 +32,15 @@ def _required_string(report: Mapping[str, Any], key: str) -> str:
 
 
 def _safe_cell(value: Any) -> str:
-    return str(value).replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+    """Render untrusted trace-derived text as inert content in Markdown tables."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return html.escape(text, quote=True).replace("|", "&#124;").replace("`", "&#96;")
+
+
+def _safe_inline(value: Any) -> str:
+    """Escape untrusted text so it cannot add Markdown structure or HTML."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return _MARKDOWN_META.sub(r"\\\1", html.escape(text, quote=True))
 
 
 def build_intelligence(report: Mapping[str, Any]) -> dict[str, Any]:
@@ -47,7 +58,9 @@ def build_intelligence(report: Mapping[str, Any]) -> dict[str, Any]:
     if max_level not in {"none", "low", "medium", "high"}:
         raise ValueError("gate report contains an unknown maximum regression severity")
 
-    changes = report.get("steps_by_change") or {}
+    if "steps_by_change" not in report:
+        raise ValueError("gate report is missing required field 'steps_by_change'")
+    changes = report["steps_by_change"]
     if not isinstance(changes, Mapping):
         raise ValueError("gate report field 'steps_by_change' must be a mapping")
     if any(not isinstance(key, str) for key in changes):
@@ -127,7 +140,7 @@ def build_intelligence(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def render_summary(intelligence: Mapping[str, Any]) -> str:
-    """Render an injection-safe Markdown summary for GitHub step summaries."""
+    """Render a Markdown summary with inert trace-derived table cells."""
     counts = intelligence.get("counts") or {}
     findings = intelligence.get("findings") or []
     lines = [
