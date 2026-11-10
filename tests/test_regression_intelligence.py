@@ -157,6 +157,24 @@ class TestRegressionIntelligence(unittest.TestCase):
         self.assertNotIn(delimiter, payload)
         self.assertIn(payload, written)
 
+    def test_job_summary_cannot_be_escaped_by_trace_text_or_viewer_url(self):
+        intelligence = regression_intelligence.build_intelligence(sample_report())
+        hostile_summary = "ordinary text\\n```\\n::error::forged workflow command\\n````"
+        hostile_url = "https://example.test/)(<script>alert(1)</script>"
+        rendered = run_gate.render_step_summary(hostile_summary, intelligence, hostile_url)
+        opening = rendered.splitlines()[2]
+        self.assertEqual(opening, "`````")
+        self.assertIn("\\n" + opening + "\\n", rendered)
+        self.assertIn("::error::forged workflow command", rendered)
+        self.assertIn("&lt;script&gt;", rendered)
+        self.assertNotIn("](https://example.test", rendered)
+        self.assertIn("<code>https://example.test/)", rendered)
+
+    def test_job_summary_fence_grows_past_longest_backtick_run(self):
+        intelligence = regression_intelligence.build_intelligence(sample_report())
+        rendered = run_gate.render_step_summary("before `````` after", intelligence)
+        self.assertEqual(rendered.splitlines()[2], "```````")
+
     def test_pr_comment_surfaces_reason_codes_and_counts(self):
         intelligence = regression_intelligence.build_intelligence(sample_report())
         body = pr_comment.render_comment(
