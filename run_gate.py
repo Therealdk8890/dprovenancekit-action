@@ -16,8 +16,10 @@ Standard library only.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import subprocess
 import sys
 import hashlib
@@ -139,6 +141,28 @@ def render_outputs(report):
         ),
     ]
 
+
+def _fenced_block(value):
+    """Wrap untrusted text in a Markdown fence longer than any fence it contains."""
+    text = str(value)
+    longest = max((len(match.group(0)) for match in re.finditer(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}\n{text}\n{fence}"
+
+
+def render_step_summary(summary, intelligence, viewer_url=None):
+    """Render the job summary without allowing trace text to add Markdown structure."""
+    lines = [
+        "### DProvenanceKit regression gate",
+        "",
+        _fenced_block(summary),
+        "",
+        render_summary(intelligence),
+    ]
+    if viewer_url:
+        # Keep the untrusted URL as escaped text in a code element, never a Markdown link.
+        lines.extend(["", f"Viewer URL: <code>{html.escape(str(viewer_url), quote=True)}</code>"])
+    return "\n".join(lines) + "\n"
 
 def write_outputs(pairs, path):
     """Append ``pairs`` to ``$GITHUB_OUTPUT`` using the multiline heredoc format."""
@@ -353,14 +377,17 @@ def main(env=None):
     write_outputs(render_outputs(report), env.get("GITHUB_OUTPUT"))
 
     summary = report.get("summary", "")
-    print(summary)
+    print("DProvenanceKit regression gate completed; see the job summary for details.")
     step_summary = env.get("GITHUB_STEP_SUMMARY")
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as fh:
-            fh.write("### DProvenanceKit regression gate\n\n```\n" + summary + "\n```\n")
-            fh.write("\n" + render_summary(report["regression_intelligence"]))
-            if ingest_result.viewer_url:
-                fh.write(f"\n[🔍 View full regression trace in DProvenance Cloud]({ingest_result.viewer_url})\n")
+            fh.write(
+                render_step_summary(
+                    summary,
+                    report["regression_intelligence"],
+                    ingest_result.viewer_url,
+                )
+            )
     
     # Promote to baseline if gate passed and promotion is requested
     promote_requested = env.get("DPROV_PROMOTE_BASELINE", "false").lower() == "true"
