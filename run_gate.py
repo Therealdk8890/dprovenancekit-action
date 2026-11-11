@@ -16,12 +16,17 @@ Standard library only.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import subprocess
 import sys
 import hashlib
+import secrets
 from dataclasses import dataclass
+
+from regression_intelligence import build_intelligence, render_summary
 
 @dataclass
 class IngestResult:
@@ -63,10 +68,6 @@ def normalize_export_event(row: dict) -> dict:
 
 import urllib.request
 import urllib.error
-
-# An unlikely delimiter for the $GITHUB_OUTPUT multiline (heredoc) format.
-_DELIM = "__DPROV_OUTPUT_EOF__"
-
 
 def resolve_run(env, run_key, context_key, db, run=subprocess.run):
     """The run id for one side: explicit, or the newest run for its context id.
@@ -126,8 +127,42 @@ def render_outputs(report):
         ("regression-level", str(report.get("regression_level", ""))),
         ("summary", report.get("summary", "")),
         ("report-json", json.dumps(report)),
+        (
+            "finding-count",
+            str(report.get("regression_intelligence", {}).get("counts", {}).get("divergence", 0)),
+        ),
+        (
+            "findings-json",
+            json.dumps(
+                report.get("regression_intelligence") or build_intelligence(report),
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        ),
     ]
 
+
+def _fenced_block(value):
+    """Wrap untrusted text in a Markdown fence longer than any fence it contains."""
+    text = str(value)
+    longest = max((len(match.group(0)) for match in re.finditer(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}\n{text}\n{fence}"
+
+
+def render_step_summary(summary, intelligence, viewer_url=None):
+    """Render the job summary without allowing trace text to add Markdown structure."""
+    lines = [
+        "### DProvenanceKit regression gate",
+        "",
+        _fenced_block(summary),
+        "",
+        render_summary(intelligence),
+    ]
+    if viewer_url:
+        # Keep the untrusted URL as escaped text in a code element, never a Markdown link.
+        lines.extend(["", f"Viewer URL: <code>{html.escape(str(viewer_url), quote=True)}</code>"])
+    return "\n".join(lines) + "\n"
 
 def write_outputs(pairs, path):
     """Append ``pairs`` to ``$GITHUB_OUTPUT`` using the multiline heredoc format."""
@@ -135,7 +170,11 @@ def write_outputs(pairs, path):
         return
     with open(path, "a", encoding="utf-8") as fh:
         for key, value in pairs:
-            fh.write(f"{key}<<{_DELIM}\n{value}\n{_DELIM}\n")
+            value = str(value)
+            delimiter = f"__DPROV_{secrets.token_hex(16)}__"
+            while delimiter in value:
+                delimiter = f"__DPROV_{secrets.token_hex(16)}__"
+            fh.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
 
 
 def ingest_run(env, db_path, run_id, report) -> IngestResult:
@@ -322,6 +361,14 @@ def main(env=None):
         print("error: gate did not emit a JSON report", file=sys.stderr)
         return 2
 
+    # Normalize only the engine's structured report. This layer never re-aligns traces
+    # or recomputes severity; it adds stable reason codes for downstream CI consumers.
+    try:
+        report["regression_intelligence"] = build_intelligence(report)
+    except (TypeError, ValueError) as exc:
+        print(f"error: invalid structured gate report: {exc}", file=sys.stderr)
+        return 2
+
     # Ingest candidate run to cloud if configured
     ingest_result = ingest_run(env, candidate_db, candidate, report)
     if ingest_result.viewer_url:
@@ -330,13 +377,17 @@ def main(env=None):
     write_outputs(render_outputs(report), env.get("GITHUB_OUTPUT"))
 
     summary = report.get("summary", "")
-    print(summary)
+    print("DProvenanceKit regression gate completed; see the job summary for details.")
     step_summary = env.get("GITHUB_STEP_SUMMARY")
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as fh:
-            fh.write("### DProvenanceKit regression gate\n\n```\n" + summary + "\n```\n")
-            if ingest_result.viewer_url:
-                fh.write(f"\n[🔍 View full regression trace in DProvenance Cloud]({ingest_result.viewer_url})\n")
+            fh.write(
+                render_step_summary(
+                    summary,
+                    report["regression_intelligence"],
+                    ingest_result.viewer_url,
+                )
+            )
     
     # Promote to baseline if gate passed and promotion is requested
     promote_requested = env.get("DPROV_PROMOTE_BASELINE", "false").lower() == "true"

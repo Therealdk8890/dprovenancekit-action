@@ -11,17 +11,29 @@ than failing the job. Standard library only (``urllib``), matching ``server/dpro
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 
-# Hidden HTML marker that identifies our comment so re-runs update it in place.
 _MARKER = "<!-- dprovenancekit-regression-gate -->"
-
-# Per-step change kinds worth surfacing, in a stable display order.
 _CHANGE_ORDER = ("removed", "added", "reordered", "ambiguous")
+_MARKDOWN_META = re.compile(r"([\\`*_{}\[\]()#+.!|>~-])")
+
+
+def _cell(value):
+    """Render trace-derived values as inert Markdown table-cell content."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return html.escape(text, quote=True).replace("|", "&#124;").replace("`", "&#96;")
+
+
+def _safe_inline(value):
+    """Escape trace-derived prose so it cannot add Markdown structure or HTML."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return _MARKDOWN_META.sub(r"\\\1", html.escape(text, quote=True))
 
 
 def render_comment(report):
@@ -38,27 +50,54 @@ def render_comment(report):
         "",
         badge,
         "",
-        f"- **Severity:** {level} (strength {strength:.2f}); "
-        f"max allowed: {report.get('max_regression_level', 'none')}",
+        f"- **Severity:** {_cell(level)} (strength {strength:.2f}); "
+        f"max allowed: {_cell(report.get('max_regression_level', 'none'))}",
         f"- **Fingerprint:** {'match' if fp_match else 'differs'}",
     ]
 
-    changes = report.get("steps_by_change") or {}
-    rows = [(kind, changes[kind]) for kind in _CHANGE_ORDER if changes.get(kind)]
-    if rows:
-        lines += ["", "| change | steps |", "| --- | --- |"]
-        lines += [f"| {kind} | {', '.join(steps)} |" for kind, steps in rows]
+    intelligence = report.get("regression_intelligence")
+    if intelligence:
+        counts = intelligence.get("counts") or {}
+        lines += [
+            "",
+            "### Regression Intelligence v1",
+            "",
+            f"- **Divergences:** {counts.get('divergence', 0)}",
+            f"- **Accepted equivalences:** {counts.get('informational', 0)}",
+            f"- **Review required:** {'yes' if intelligence.get('review_required') else 'no'}",
+        ]
+        findings = intelligence.get("findings") or []
+        if findings:
+            lines += ["", "| reason code | step | disposition |", "| --- | --- | --- |"]
+            lines += [
+                f"| `{_cell(item.get('reason_code', ''))}` | "
+                f"{_cell(item.get('step_identifier', ''))} | "
+                f"{_cell(item.get('disposition', ''))} |"
+                for item in findings
+            ]
+        else:
+            lines.append("- No per-step findings.")
     else:
-        lines.append("- No per-step changes (all exact matches).")
+        changes = report.get("steps_by_change") or {}
+        rows = [(kind, changes[kind]) for kind in _CHANGE_ORDER if changes.get(kind)]
+        if rows:
+            lines += ["", "| change | steps |", "| --- | --- |"]
+            lines += [
+                f"| {kind} | {', '.join(_cell(step) for step in steps)} |"
+                for kind, steps in rows
+            ]
+        else:
+            lines.append("- No per-step changes (all exact matches).")
 
     reasoning = report.get("reasoning")
     if reasoning:
-        lines += ["", f"_{reasoning}_"]
-        
+        lines += ["", _safe_inline(reasoning)]
+
     viewer_url = report.get("viewer_url")
     if viewer_url:
-        lines += ["", f"[🔍 View full regression trace in DProvenance Cloud]({viewer_url})"]
-        
+        # Treat the URL as plain escaped text rather than interpolating it into Markdown.
+        lines += ["", f"Viewer URL: {_cell(viewer_url)}"]
+
     return "\n".join(lines)
 
 
@@ -138,4 +177,3 @@ def main(env=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
