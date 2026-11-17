@@ -52,3 +52,14 @@ DPK complements LangSmith, Braintrust, Langfuse, and other observability/evaluat
 Create a manifest with `python scripts/release_evidence.py create --baseline BASE --candidate CAND --policy POLICY --gate-report gate-report.json --artifact evidence.json --output manifest.json`. Run `python scripts/release_evidence.py verify manifest.json --strict` to require a hash-bound `gate-report.json` with a boolean `passed` value consistent with the manifest verdict. Files must reside within the manifest directory.
 
 **Trust boundary:** `--strict` means gate-report presence, local hash integrity, and verdict consistency. It **does not** verify a signature, trusted producer identity, gate-report provenance, policy content or completeness. Do not describe this as signed evidence or an authenticated release decision. A future signed envelope and pinned trust root are separate acceptance gates.
+
+## Ed25519 signing candidate (on PR branch; CI verification required)
+
+Install `cryptography>=42,<47`. After creating and strictly validating the manifest, run:
+
+```sh
+python scripts/signed_release_evidence.py sign manifest.json --private-key /secure/keys/signing.pem --output manifest.sig.json
+python scripts/signed_release_evidence.py verify manifest.json --signature manifest.sig.json --trusted-public-key /trusted/keys/release.pem
+```
+
+The trusted public key **must** come from an independent trusted channel, never from the untrusted bundle. Keep the private key outside the repository and CI logs. Ed25519 authenticates exact manifest bytes and the verifier then checks the local artifact hashes and gate verdict. It does not prove the original capture is truthful, the policy is correct, or the agent is contained. Key rotation, revocation, a canonical cross-language envelope, and production key custody remain future work.
