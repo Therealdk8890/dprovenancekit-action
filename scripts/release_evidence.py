@@ -52,12 +52,37 @@ def create(args: argparse.Namespace) -> None:
         raise ValueError("duplicate artifact path")
     if not entries:
         raise ValueError("at least one artifact is required")
+    if args.gate_report:
+        report_path = Path(args.gate_report)
+        if report_path.is_symlink():
+            raise ValueError("gate report must not be a symlink")
+        report_path = report_path.resolve(strict=True)
+        if report_path == output:
+            raise ValueError("gate report cannot be output manifest")
+        try:
+            report_relative = report_path.relative_to(base).as_posix()
+        except ValueError as exc:
+            raise ValueError("gate report must be inside manifest directory") from exc
+        if report_relative in {entry["path"] for entry in entries}:
+            raise ValueError("gate report must not duplicate an artifact")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if not isinstance(report, dict) or type(report.get("passed")) is not bool:
+            raise ValueError("gate report requires a boolean passed field")
+        expected = "pass" if report["passed"] else "block"
+        if args.verdict and args.verdict != expected:
+            raise ValueError("supplied verdict conflicts with gate report")
+        verdict = expected
+        entries.append({"path": report_relative, "sha256": sha256(report_path)})
+    else:
+        verdict = args.verdict
+        if not verdict:
+            raise ValueError("provide --gate-report or --verdict")
     document = {
         "format": FORMAT,
         "baseline": args.baseline,
         "candidate": args.candidate,
         "policy": args.policy,
-        "verdict": args.verdict,
+        "verdict": verdict,
         "artifacts": sorted(entries, key=lambda e: e["path"]),
     }
     output.write_text(json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8")
@@ -105,7 +130,8 @@ def main() -> int:
     make = sub.add_parser("create")
     for key in ("baseline", "candidate", "policy"):
         make.add_argument("--" + key, required=True)
-    make.add_argument("--verdict", choices=("pass", "block"), required=True)
+    make.add_argument("--verdict", choices=("pass", "block"))
+    make.add_argument("--gate-report", help="DPK gate JSON report; derive verdict from passed and hash-bind report")
     make.add_argument("--artifact", action="append", required=True)
     make.add_argument("--output", required=True)
     check = sub.add_parser("verify")
