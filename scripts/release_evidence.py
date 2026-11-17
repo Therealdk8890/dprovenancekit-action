@@ -90,7 +90,7 @@ def create(args: argparse.Namespace) -> None:
     output.write_text(json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
-def verify(path: Path) -> None:
+def verify(path: Path, *, strict: bool = False) -> None:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict) or set(manifest) != {
         "format", "baseline", "candidate", "policy", "verdict", "artifacts"
@@ -126,6 +126,8 @@ def verify(path: Path) -> None:
             raise ValueError(f"artifact hash mismatch: {rel}")
     # If a gate report is declared, bind its semantic verdict as well as bytes.
     gate_entries = [entry for entry in entries if entry["path"] == "gate-report.json"]
+    if strict and not gate_entries:
+        raise ValueError("strict verification requires gate-report.json")
     if gate_entries:
         gate_path = root / "gate-report.json"
         report = json.loads(gate_path.read_text(encoding="utf-8"))
@@ -148,12 +150,13 @@ def main() -> int:
     make.add_argument("--output", required=True)
     check = sub.add_parser("verify")
     check.add_argument("manifest")
+    check.add_argument("--strict", action="store_true", help="require a hash-bound, consistent gate-report.json; does not authenticate signer")
     args = parser.parse_args()
     try:
         if args.command == "create":
             create(args)
         else:
-            verify(Path(args.manifest))
+            verify(Path(args.manifest), strict=args.strict)
         print("release evidence: OK")
         return 0
     except (ValueError, OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
