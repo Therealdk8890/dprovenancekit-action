@@ -122,6 +122,16 @@ def verify(path: Path) -> None:
             raise ValueError("artifact escapes manifest directory")
         if sha256(target) != digest:
             raise ValueError(f"artifact hash mismatch: {rel}")
+    # If a gate report is declared, bind its semantic verdict as well as bytes.
+    gate_entries = [entry for entry in entries if entry["path"] == "gate-report.json"]
+    if gate_entries:
+        gate_path = root / "gate-report.json"
+        report = json.loads(gate_path.read_text(encoding="utf-8"))
+        if not isinstance(report, dict) or type(report.get("passed")) is not bool:
+            raise ValueError("invalid gate report")
+        if manifest["verdict"] != ("pass" if report["passed"] else "block"):
+            raise ValueError("gate verdict mismatch")
+
 
 
 def main() -> int:
