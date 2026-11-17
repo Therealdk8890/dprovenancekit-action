@@ -38,7 +38,10 @@ def create(args: argparse.Namespace) -> None:
     base = output.parent
     entries = []
     for raw in args.artifact:
-        path = Path(raw).resolve(strict=True)
+        original = Path(raw)
+        if original.is_symlink():
+            raise ValueError("artifact must not be a symlink")
+        path = original.resolve(strict=True)
         if path == output:
             raise ValueError("output manifest cannot be its own artifact")
         relative = path.relative_to(base).as_posix()
@@ -47,6 +50,8 @@ def create(args: argparse.Namespace) -> None:
         entries.append({"path": relative, "sha256": sha256(path)})
     if len({e["path"] for e in entries}) != len(entries):
         raise ValueError("duplicate artifact path")
+    if not entries:
+        raise ValueError("at least one artifact is required")
     document = {
         "format": FORMAT,
         "baseline": args.baseline,
