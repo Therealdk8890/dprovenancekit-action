@@ -78,6 +78,42 @@ class EvidenceTests(unittest.TestCase):
                 verdict="block", artifact=[], output=str(self.root / "other.json")
             ))
 
+    def test_gate_report_derives_block_and_is_hash_bound(self):
+        report = self.root / "gate-report.json"
+        report.write_text(json.dumps({"passed": False, "summary": "missing verify"}))
+        MODULE.create(Namespace(
+            baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+            verdict=None, gate_report=str(report), artifact=[str(self.artifact)],
+            output=str(self.manifest)
+        ))
+        document = json.loads(self.manifest.read_text())
+        self.assertEqual(document["verdict"], "block")
+        self.assertIn("gate-report.json", [entry["path"] for entry in document["artifacts"]])
+        MODULE.verify(self.manifest)
+        report.write_text(json.dumps({"passed": True}))
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            MODULE.verify(self.manifest)
+
+    def test_conflicting_manual_verdict_rejected(self):
+        report = self.root / "gate-report.json"
+        report.write_text(json.dumps({"passed": False}))
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            MODULE.create(Namespace(
+                baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+                verdict="pass", gate_report=str(report), artifact=[str(self.artifact)],
+                output=str(self.manifest)
+            ))
+
+    def test_invalid_gate_report_fails_closed(self):
+        report = self.root / "gate-report.json"
+        report.write_text(json.dumps({"passed": "false"}))
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            MODULE.create(Namespace(
+                baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+                verdict=None, gate_report=str(report), artifact=[str(self.artifact)],
+                output=str(self.manifest)
+            ))
+
     def test_manifest_is_not_authenticated(self):
         # The format is explicitly UNSIGNED: an attacker can rewrite artifact
         # and digest together. This is a limitation, not an expected failure.
