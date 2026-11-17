@@ -1,0 +1,73 @@
+"""Positive and negative tests for preliminary unsigned release-evidence manifests."""
+import importlib.util
+import json
+import tempfile
+import unittest
+from argparse import Namespace
+from pathlib import Path
+
+SOURCE = Path(__file__).resolve().parents[1] / "scripts" / "release_evidence.py"
+SPEC = importlib.util.spec_from_file_location("release_evidence", SOURCE)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+class EvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.artifact = self.root / "gate.json"
+        self.artifact.write_text('{"passed":false}', encoding="utf-8")
+        self.manifest = self.root / "manifest.json"
+        MODULE.create(Namespace(
+            baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+            verdict="block", artifact=[str(self.artifact)], output=str(self.manifest)
+        ))
+
+    def test_valid_manifest(self):
+        MODULE.verify(self.manifest)
+
+    def test_modified_artifact_fails(self):
+        self.artifact.write_text('{"passed":true}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            MODULE.verify(self.manifest)
+
+    def test_missing_artifact_fails(self):
+        self.artifact.unlink()
+        with self.assertRaises((ValueError, OSError)):
+            MODULE.verify(self.manifest)
+
+    def test_path_traversal_fails(self):
+        data = json.loads(self.manifest.read_text())
+        data["artifacts"][0]["path"] = "../gate.json"
+        self.manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            MODULE.verify(self.manifest)
+
+    def test_missing_policy_fails(self):
+        data = json.loads(self.manifest.read_text())
+        data["policy"] = ""
+        self.manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "missing policy"):
+            MODULE.verify(self.manifest)
+
+    def test_duplicate_artifact_fails(self):
+        data = json.loads(self.manifest.read_text())
+        data["artifacts"].append(data["artifacts"][0])
+        self.manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            MODULE.verify(self.manifest)
+
+    def test_manifest_is_not_authenticated(self):
+        # The format is explicitly UNSIGNED: an attacker can rewrite artifact
+        # and digest together. This is a limitation, not an expected failure.
+        self.artifact.write_text("forged", encoding="utf-8")
+        data = json.loads(self.manifest.read_text())
+        data["artifacts"][0]["sha256"] = MODULE.sha256(self.artifact)
+        self.manifest.write_text(json.dumps(data))
+        MODULE.verify(self.manifest)
+
+
+if __name__ == "__main__":
+    unittest.main()
