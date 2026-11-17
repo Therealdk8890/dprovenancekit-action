@@ -63,6 +63,8 @@ def create(args: argparse.Namespace) -> None:
             report_relative = report_path.relative_to(base).as_posix()
         except ValueError as exc:
             raise ValueError("gate report must be inside manifest directory") from exc
+        if report_relative != "gate-report.json":
+            raise ValueError("gate report must be named gate-report.json at manifest root")
         if report_relative in {entry["path"] for entry in entries}:
             raise ValueError("gate report must not duplicate an artifact")
         report = json.loads(report_path.read_text(encoding="utf-8"))
