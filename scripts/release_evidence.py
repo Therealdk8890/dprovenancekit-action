@@ -52,7 +52,7 @@ def create(args: argparse.Namespace) -> None:
         raise ValueError("duplicate artifact path")
     if not entries:
         raise ValueError("at least one artifact is required")
-    if args.gate_report:
+    if getattr(args, "gate_report", None):
         report_path = Path(args.gate_report)
         if report_path.is_symlink():
             raise ValueError("gate report must not be a symlink")
