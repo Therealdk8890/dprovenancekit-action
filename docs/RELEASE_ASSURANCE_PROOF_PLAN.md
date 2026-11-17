@@ -46,3 +46,9 @@ DPK complements LangSmith, Braintrust, Langfuse, and other observability/evaluat
 - [ ] Swift/Python production-engine parity evidence
 - [ ] Public claims reconciled with demonstrated behavior
 - [ ] Security and release review before merging
+
+## Preliminary manifest verifier (implemented on this PR branch)
+
+Create a manifest with `python scripts/release_evidence.py create --baseline BASE --candidate CAND --policy POLICY --gate-report gate-report.json --artifact evidence.json --output manifest.json`. Run `python scripts/release_evidence.py verify manifest.json --strict` to require a hash-bound `gate-report.json` with a boolean `passed` value consistent with the manifest verdict. Files must reside within the manifest directory.
+
+**Trust boundary:** `--strict` means gate-report presence, local hash integrity, and verdict consistency. It **does not** verify a signature, trusted producer identity, gate-report provenance, policy content or completeness. Do not describe this as signed evidence or an authenticated release decision. A future signed envelope and pinned trust root are separate acceptance gates.
