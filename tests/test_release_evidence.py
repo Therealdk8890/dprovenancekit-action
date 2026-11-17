@@ -114,6 +114,30 @@ class EvidenceTests(unittest.TestCase):
                 output=str(self.manifest)
             ))
 
+    def test_verifier_rejects_matching_hash_with_conflicting_verdict(self):
+        report = self.root / "gate-report.json"
+        report.write_text(json.dumps({"passed": False}))
+        MODULE.create(Namespace(
+            baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+            verdict=None, gate_report=str(report), artifact=[str(self.artifact)],
+            output=str(self.manifest)
+        ))
+        data = json.loads(self.manifest.read_text())
+        data["verdict"] = "pass"
+        self.manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "gate verdict mismatch"):
+            MODULE.verify(self.manifest)
+
+    def test_noncanonical_gate_report_path_rejected(self):
+        report = self.root / "report.json"
+        report.write_text(json.dumps({"passed": False}))
+        with self.assertRaisesRegex(ValueError, "named gate-report.json"):
+            MODULE.create(Namespace(
+                baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+                verdict=None, gate_report=str(report), artifact=[str(self.artifact)],
+                output=str(self.manifest)
+            ))
+
     def test_manifest_is_not_authenticated(self):
         # The format is explicitly UNSIGNED: an attacker can rewrite artifact
         # and digest together. This is a limitation, not an expected failure.
