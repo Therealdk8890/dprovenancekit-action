@@ -138,6 +138,20 @@ class EvidenceTests(unittest.TestCase):
                 output=str(self.manifest)
             ))
 
+    def test_strict_rejects_manifest_without_gate_report(self):
+        with self.assertRaisesRegex(ValueError, "requires gate-report"):
+            MODULE.verify(self.manifest, strict=True)
+
+    def test_strict_accepts_consistent_gate_report(self):
+        report = self.root / "gate-report.json"
+        report.write_text(json.dumps({"passed": False}))
+        MODULE.create(Namespace(
+            baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+            verdict=None, gate_report=str(report), artifact=[str(self.artifact)],
+            output=str(self.manifest)
+        ))
+        MODULE.verify(self.manifest, strict=True)
+
     def test_manifest_is_not_authenticated(self):
         # The format is explicitly UNSIGNED: an attacker can rewrite artifact
         # and digest together. This is a limitation, not an expected failure.
