@@ -59,6 +59,25 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate"):
             MODULE.verify(self.manifest)
 
+    def test_symlink_artifact_rejected_on_create(self):
+        link = self.root / "link.json"
+        try:
+            link.symlink_to(self.artifact)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unsupported")
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            MODULE.create(Namespace(
+                baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+                verdict="block", artifact=[str(link)], output=str(self.root / "other.json")
+            ))
+
+    def test_empty_artifacts_rejected_on_create(self):
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            MODULE.create(Namespace(
+                baseline="golden-1", candidate="candidate-2", policy="required-verify-v1",
+                verdict="block", artifact=[], output=str(self.root / "other.json")
+            ))
+
     def test_manifest_is_not_authenticated(self):
         # The format is explicitly UNSIGNED: an attacker can rewrite artifact
         # and digest together. This is a limitation, not an expected failure.
