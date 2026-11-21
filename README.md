@@ -93,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verification Receipt gate
-        uses: Therealdk8890/dprovenancekit-action@<commit-sha>
+        uses: Therealdk8890/dprovenancekit-action@v1   # v1.2.0+ (or pin a commit SHA)
         with:
           gate-mode: receipt
           receipt-path: path/to/verification-receipt.json
@@ -126,15 +126,12 @@ it does not replace it.
   release tag. Avoid floating `@main`.
   ```yaml
   uses: Therealdk8890/dprovenancekit-action@<commit-sha>   # preferred
-  # uses: Therealdk8890/dprovenancekit-action@v1          # floating major — path mode only, see below
+  # uses: Therealdk8890/dprovenancekit-action@v1.2.0      # exact release
+  # uses: Therealdk8890/dprovenancekit-action@v1          # floating major (currently v1.2.0)
   ```
-- **Release tags lag `main`:** the latest tag, `v1.1.2` (also `v1`), predates
-  `gate-mode: receipt`, the Regression Intelligence outputs, the
-  `dprovenancekit==0.10.0` default, and the recent security hardening. With
-  `@v1` / `@v1.1.2`, receipt-mode inputs are ignored (GitHub logs an
-  "Unexpected input" warning) and the path gate runs instead, failing on
-  missing path inputs. Until a newer release is tagged, pin a commit SHA from `main`
-  to use those features.
+- `v1.2.0` is the first release with `gate-mode: receipt`, the Regression
+  Intelligence outputs, and the `dprovenancekit==0.10.0` default. `v1.1.2` and
+  earlier support path mode only.
 - **PyPI package:** the Action default `install-spec` is
   **`dprovenancekit==0.10.0`** (core gate; crypto extra not required for gating).
   Override only for deliberate upgrades.

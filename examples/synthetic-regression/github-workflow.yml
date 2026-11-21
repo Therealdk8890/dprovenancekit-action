@@ -24,7 +24,7 @@ jobs:
 
       - name: Record golden, matching, and intentionally regressed traces
         run: |
-          python -m pip install --disable-pip-version-check 'dprovenancekit==0.7.0'
+          python -m pip install --disable-pip-version-check 'dprovenancekit==0.10.0'
           python record_traces.py
 
       - name: Gate matching candidate (must PASS)
