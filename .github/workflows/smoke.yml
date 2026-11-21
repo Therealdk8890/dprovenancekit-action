@@ -21,12 +21,15 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Byte-compile all Python sources
+        run: python -m compileall -q .
+
       - name: Unit-test gate evaluators and Regression Intelligence v1
         run: python -m unittest discover -s tests -v
 
       - name: Record golden + candidate traces
         run: |
-          python -m pip install --disable-pip-version-check dprovenancekit
+          python -m pip install --disable-pip-version-check 'dprovenancekit==0.10.0'
           python smoke/record_runs.py
 
       - name: Gate candidate against golden (context selection, the published action path)
@@ -39,10 +42,14 @@ jobs:
           comment: "false"
 
       - name: Assert the gate passed
+        env:
+          GATE_PASSED: ${{ steps.gate.outputs.passed }}
+          GATE_REGRESSION_LEVEL: ${{ steps.gate.outputs.regression-level }}
+          GATE_FINDING_COUNT: ${{ steps.gate.outputs.finding-count }}
         run: |
-          echo "passed=${{ steps.gate.outputs.passed }} level=${{ steps.gate.outputs.regression-level }} findings=${{ steps.gate.outputs.finding-count }}"
-          test "${{ steps.gate.outputs.passed }}" = "true"
-          test "${{ steps.gate.outputs.finding-count }}" = "0"
+          echo "passed=${GATE_PASSED} level=${GATE_REGRESSION_LEVEL} findings=${GATE_FINDING_COUNT}"
+          test "${GATE_PASSED}" = "true"
+          test "${GATE_FINDING_COUNT}" = "0"
 
       - name: Gate a regressed candidate against golden (must FAIL the gate)
         id: gate_fail
@@ -57,7 +64,11 @@ jobs:
           fail-on-regression: "false"
 
       - name: Assert the gate failed on the regression
+        env:
+          GATE_FAIL_PASSED: ${{ steps.gate_fail.outputs.passed }}
+          GATE_FAIL_REGRESSION_LEVEL: ${{ steps.gate_fail.outputs.regression-level }}
+          GATE_FAIL_FINDING_COUNT: ${{ steps.gate_fail.outputs.finding-count }}
         run: |
-          echo "passed=${{ steps.gate_fail.outputs.passed }} level=${{ steps.gate_fail.outputs.regression-level }} findings=${{ steps.gate_fail.outputs.finding-count }}"
-          test "${{ steps.gate_fail.outputs.passed }}" = "false"
-          test "${{ steps.gate_fail.outputs.finding-count }}" != "0"
+          echo "passed=${GATE_FAIL_PASSED} level=${GATE_FAIL_REGRESSION_LEVEL} findings=${GATE_FAIL_FINDING_COUNT}"
+          test "${GATE_FAIL_PASSED}" = "false"
+          test "${GATE_FAIL_FINDING_COUNT}" != "0"

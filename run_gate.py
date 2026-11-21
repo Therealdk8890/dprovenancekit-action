@@ -16,17 +16,47 @@ Standard library only.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
-import hashlib
-import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 
 from regression_intelligence import build_intelligence, render_summary
+
+_EXPORT_REQUIRED_FIELDS = (
+    "event_id",
+    "run_id",
+    "context_id",
+    "priority",
+    "sequence",
+    "engine",
+    "type",
+    "timestamp",
+)
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects on requests that carry the BYO cloud API key.
+
+    urllib would otherwise resend the Authorization header to the redirect
+    target, which could be plain http or a different origin.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_CLOUD_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
 
 @dataclass
 class IngestResult:
@@ -35,23 +65,13 @@ class IngestResult:
     viewer_url: str | None
 
 def normalize_export_event(row: dict) -> dict:
-    if "event_id" not in row:
-        raise ValueError(f"Export row is missing required field 'event_id': {row}")
-    if "run_id" not in row:
-        raise ValueError(f"Export row is missing required field 'run_id': {row}")
-    if "context_id" not in row:
-        raise ValueError(f"Export row is missing required field 'context_id': {row}")
-    if "priority" not in row:
-        raise ValueError(f"Export row is missing required field 'priority': {row}")
-    if "sequence" not in row:
-        raise ValueError(f"Export row is missing required field 'sequence': {row}")
-    if "engine" not in row:
-        raise ValueError(f"Export row is missing required field 'engine': {row}")
-    if "type" not in row:
-        raise ValueError(f"Export row is missing required field 'type': {row}")
-    if "timestamp" not in row:
-        raise ValueError(f"Export row is missing required field 'timestamp': {row}")
-        
+    if not isinstance(row, dict):
+        raise ValueError("export row must be a JSON object")
+    for field in _EXPORT_REQUIRED_FIELDS:
+        if field not in row:
+            # Do not echo the row itself: it can contain trace payload data.
+            raise ValueError(f"export row is missing required field {field!r}")
+
     return {
         "id": row["event_id"],
         "run_id": row["run_id"],
@@ -66,8 +86,22 @@ def normalize_export_event(row: dict) -> dict:
         "timestamp": row["timestamp"],
     }
 
-import urllib.request
-import urllib.error
+def validate_cloud_url(raw: str) -> str:
+    """Return the normalized BYO cloud base URL or raise ``ValueError``.
+
+    The API key is sent as a bearer token, so plain ``http`` is only accepted
+    for loopback hosts (local testing).
+    """
+    url = (raw or "").strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+        raise ValueError("cloud-url must be an absolute https:// URL")
+    if parsed.scheme == "http" and parsed.hostname not in _LOOPBACK_HOSTS:
+        raise ValueError("cloud-url must use https:// (http is allowed only for localhost)")
+    if parsed.username or parsed.password:
+        raise ValueError("cloud-url must not embed credentials; use cloud-api-key")
+    return url
+
 
 def resolve_run(env, run_key, context_key, db, run=subprocess.run):
     """The run id for one side: explicit, or the newest run for its context id.
@@ -182,42 +216,46 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
     if cloud_mode not in {"off", "optional", "required"}:
         print(f"error: invalid cloud-mode '{cloud_mode}'. Must be 'off', 'optional', or 'required'.", file=sys.stderr)
         raise SystemExit(2)
-        
+
     if cloud_mode == "off":
         return IngestResult(False, None, None)
 
     # No hosted DProvenanceKit cloud. Require an explicit customer BYO URL; fail closed
     # if cloud-mode is enabled without one (do not fall back to api.dprovenance.dev).
-    cloud_url = (env.get("DPROV_CLOUD_URL") or "").rstrip("/")
-    if not cloud_url:
+    if not (env.get("DPROV_CLOUD_URL") or "").strip():
         print(
             "error: cloud-mode is enabled but cloud-url is empty. "
             "Supply your own BYO endpoint; there is no DProvenanceKit-hosted service.",
             file=sys.stderr,
         )
         raise SystemExit(1)
+    try:
+        cloud_url = validate_cloud_url(env["DPROV_CLOUD_URL"])
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     api_key = env.get("DPROV_CLOUD_API_KEY", "")
     project_id = env.get("DPROV_PROJECT_ID", "")
-    
+
     if not api_key:
         print("warning: DPROV_CLOUD_API_KEY not set. Skipping ingestion.", file=sys.stderr)
         if cloud_mode == "required":
             raise SystemExit(1)
         return IngestResult(False, None, None)
-        
+
     if not project_id:
         print("warning: DPROV_PROJECT_ID not set. Skipping ingestion.", file=sys.stderr)
         if cloud_mode == "required":
             raise SystemExit(1)
         return IngestResult(False, None, None)
-        
+
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "dprovenancekit.cli", "export", "--db", db_path, "--run", run_id, "--format", "jsonl"],
             capture_output=True, text=True, check=True
         )
-        
+
         events = []
         for line in proc.stdout.splitlines():
             line = line.strip()
@@ -226,39 +264,42 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
             try:
                 row = json.loads(line)
                 events.append(normalize_export_event(row))
-            except Exception as e:
-                print(f"error processing export row: {e}", file=sys.stderr)
+            except (json.JSONDecodeError, ValueError) as exc:
+                print(f"error processing export row: {exc}", file=sys.stderr)
                 if cloud_mode == "required":
-                    raise SystemExit(1)
+                    raise SystemExit(1) from None
                 return IngestResult(False, None, None)
-            
+
         if not events:
             print(f"warning: run {run_id} produced no events during export", file=sys.stderr)
             if cloud_mode == "required":
                 raise SystemExit(1)
             return IngestResult(False, None, None)
-            
+
         context_id = events[0].get("context_id", "unknown")
-            
+
         gate_report_sha256 = hashlib.sha256(json.dumps(report).encode("utf-8")).hexdigest()
 
         run_metadata = {
             "client_run_id": run_id,
             "context_id": context_id,
-            "commit_sha": os.environ.get("GITHUB_SHA"),
-            "branch": os.environ.get("GITHUB_REF_NAME"),
-            "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
-            "workflow_event": os.environ.get("GITHUB_EVENT_NAME"),
+            "commit_sha": env.get("GITHUB_SHA"),
+            "branch": env.get("GITHUB_REF_NAME"),
+            "workflow_run_id": env.get("GITHUB_RUN_ID"),
+            "workflow_event": env.get("GITHUB_EVENT_NAME"),
             "gate_status": "passed" if report.get("passed") else "failed",
             "gate_report_sha256": gate_report_sha256,
         }
-        
+
         artifacts_json = env.get("DPROV_ARTIFACTS", "[]")
         try:
             artifacts = json.loads(artifacts_json)
-        except Exception:
+        except json.JSONDecodeError:
+            artifacts = None
+        if not isinstance(artifacts, list):
+            print("warning: artifacts input is not a JSON array; ignoring it", file=sys.stderr)
             artifacts = []
-            
+
         payload = {
             "schema_version": "dprov.ingest.v1",
             "project_id": project_id,
@@ -266,28 +307,28 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
             "events": events,
             "artifacts": artifacts
         }
-        
-        req = urllib.request.Request(
+
+        req = urllib.request.Request(  # noqa: S310 - scheme validated
             f"{cloud_url}/api/v1/traces/ingest",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _CLOUD_OPENER.open(req, timeout=30) as resp:
             resp_body = json.loads(resp.read())
-            
-            if "run_id" not in resp_body or "viewer_url" not in resp_body or "content_sha256" not in resp_body:
+
+            if not isinstance(resp_body, dict) or "run_id" not in resp_body or "viewer_url" not in resp_body or "content_sha256" not in resp_body:
                 print("error: malformed backend response, missing required fields.", file=sys.stderr)
                 if cloud_mode == "required":
-                    raise SystemExit(1)
+                    raise SystemExit(1) from None
                 return IngestResult(False, None, None)
-                
+
             print("Successfully ingested run to cloud.", file=sys.stderr)
             return IngestResult(True, resp_body.get("run_id"), resp_body.get("viewer_url"))
     except Exception as exc:
         print(f"error during ingestion: {exc}", file=sys.stderr)
         if cloud_mode == "required":
-            raise SystemExit(1)
+            raise SystemExit(1) from None
         return IngestResult(False, None, None)
 
 
@@ -296,30 +337,34 @@ def promote_baseline(env, run_id):
         return True
     if env.get("DPROV_PROMOTE_BASELINE", "false").lower() != "true":
         return True
-        
-    cloud_url = (env.get("DPROV_CLOUD_URL") or "").rstrip("/")
+
     api_key = env.get("DPROV_CLOUD_API_KEY", "")
     project_id = env.get("DPROV_PROJECT_ID", "")
-    
-    if not cloud_url or not api_key or not project_id:
+    try:
+        cloud_url = validate_cloud_url(env.get("DPROV_CLOUD_URL") or "")
+    except ValueError as exc:
+        print(f"warning: baseline promotion skipped — {exc}", file=sys.stderr)
+        return False
+
+    if not api_key or not project_id:
         print(
             "warning: baseline promotion skipped — cloud-url, API key, and project-id are all required (BYO only).",
             file=sys.stderr,
         )
         return False
-        
+
     try:
         payload = {
             "project_id": project_id,
             "run_id": run_id
         }
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310 - scheme validated
             f"{cloud_url}/api/v1/baselines/promote",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _CLOUD_OPENER.open(req, timeout=10) as resp:
             resp.read()
             print("Successfully promoted run to baseline.", file=sys.stderr)
             return True
@@ -350,15 +395,27 @@ def main(env=None):
         return 2
 
     proc = subprocess.run(argv, capture_output=True, text=True)
-    # Gate exit codes: 0 pass, 1 regression, 2 usage / run-not-found.
-    if proc.returncode == 2:
+    # Gate exit codes: 0 pass, 1 regression, 2 usage / run-not-found. Anything else
+    # (crash, signal) is an error: the gate fails closed rather than trusting stdout.
+    if proc.returncode not in (0, 1):
         sys.stderr.write(proc.stderr)
+        if proc.returncode != 2:
+            print(f"error: gate exited with unexpected status {proc.returncode}", file=sys.stderr)
         return 2
     try:
         report = json.loads(proc.stdout)
     except json.JSONDecodeError:
         sys.stderr.write(proc.stderr or proc.stdout)
         print("error: gate did not emit a JSON report", file=sys.stderr)
+        return 2
+    if not isinstance(report, dict):
+        print("error: gate report must be a JSON object", file=sys.stderr)
+        return 2
+    if proc.returncode == 1 and report.get("passed") is not False:
+        print(
+            "error: gate exited 1 (regression) but its report does not say passed=false",
+            file=sys.stderr,
+        )
         return 2
 
     # Normalize only the engine's structured report. This layer never re-aligns traces
@@ -388,16 +445,16 @@ def main(env=None):
                     ingest_result.viewer_url,
                 )
             )
-    
+
     # Promote to baseline if gate passed and promotion is requested
     promote_requested = env.get("DPROV_PROMOTE_BASELINE", "false").lower() == "true"
     cloud_mode = env.get("DPROV_CLOUD_MODE", "off").lower()
-    
+
     if report.get("passed") and promote_requested and ingest_result.server_run_id:
         github_event = env.get("GITHUB_EVENT_NAME", "")
         github_ref = env.get("GITHUB_REF_NAME", "")
         configured_branch = env.get("DPROV_DEFAULT_BRANCH", "main")
-        
+
         can_promote = True
         if github_event != "push":
             print("warning: baseline promotion requires a push workflow", file=sys.stderr)
@@ -405,7 +462,7 @@ def main(env=None):
         if github_ref != configured_branch:
             print("warning: baseline promotion requires the default branch", file=sys.stderr)
             can_promote = False
-            
+
         if can_promote:
             promotion_ok = promote_baseline(env, ingest_result.server_run_id)
             if not promotion_ok and cloud_mode == "required":
@@ -414,7 +471,7 @@ def main(env=None):
         elif cloud_mode == "required":
             print("error: required baseline promotion is ineligible on this branch/workflow", file=sys.stderr)
             return 1
-            
+
     return 0
 
 

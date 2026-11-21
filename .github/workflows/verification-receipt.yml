@@ -39,10 +39,13 @@ jobs:
           comment: "false"
 
       - name: Assert verified passed
+        env:
+          VERIFIED_RECEIPT_STATUS: ${{ steps.verified.outputs.receipt-status }}
+          VERIFIED_PASSED: ${{ steps.verified.outputs.passed }}
         run: |
-          echo "status=${{ steps.verified.outputs.receipt-status }} passed=${{ steps.verified.outputs.passed }}"
-          test "${{ steps.verified.outputs.passed }}" = "true"
-          test "${{ steps.verified.outputs.receipt-status }}" = "verified"
+          echo "status=${VERIFIED_RECEIPT_STATUS} passed=${VERIFIED_PASSED}"
+          test "${VERIFIED_PASSED}" = "true"
+          test "${VERIFIED_RECEIPT_STATUS}" = "verified"
 
       - name: Receipt incomplete (must FAIL the gate)
         id: incomplete
@@ -55,10 +58,13 @@ jobs:
           fail-on-receipt: "false"
 
       - name: Assert incomplete failed
+        env:
+          INCOMPLETE_RECEIPT_STATUS: ${{ steps.incomplete.outputs.receipt-status }}
+          INCOMPLETE_PASSED: ${{ steps.incomplete.outputs.passed }}
         run: |
-          echo "status=${{ steps.incomplete.outputs.receipt-status }} passed=${{ steps.incomplete.outputs.passed }}"
-          test "${{ steps.incomplete.outputs.passed }}" = "false"
-          test "${{ steps.incomplete.outputs.receipt-status }}" = "incomplete"
+          echo "status=${INCOMPLETE_RECEIPT_STATUS} passed=${INCOMPLETE_PASSED}"
+          test "${INCOMPLETE_PASSED}" = "false"
+          test "${INCOMPLETE_RECEIPT_STATUS}" = "incomplete"
 
       - name: Receipt tampered (must FAIL the gate)
         id: tampered
@@ -70,20 +76,30 @@ jobs:
           fail-on-receipt: "false"
 
       - name: Assert tampered failed
+        env:
+          TAMPERED_RECEIPT_STATUS: ${{ steps.tampered.outputs.receipt-status }}
+          TAMPERED_PASSED: ${{ steps.tampered.outputs.passed }}
         run: |
-          echo "status=${{ steps.tampered.outputs.receipt-status }} passed=${{ steps.tampered.outputs.passed }}"
-          test "${{ steps.tampered.outputs.passed }}" = "false"
-          test "${{ steps.tampered.outputs.receipt-status }}" = "tampered"
+          echo "status=${TAMPERED_RECEIPT_STATUS} passed=${TAMPERED_PASSED}"
+          test "${TAMPERED_PASSED}" = "false"
+          test "${TAMPERED_RECEIPT_STATUS}" = "tampered"
 
       - name: Scoreboard summary
         if: always()
+        env:
+          VERIFIED_PASSED: ${{ steps.verified.outputs.passed }}
+          VERIFIED_RECEIPT_STATUS: ${{ steps.verified.outputs.receipt-status }}
+          INCOMPLETE_PASSED: ${{ steps.incomplete.outputs.passed }}
+          INCOMPLETE_RECEIPT_STATUS: ${{ steps.incomplete.outputs.receipt-status }}
+          TAMPERED_PASSED: ${{ steps.tampered.outputs.passed }}
+          TAMPERED_RECEIPT_STATUS: ${{ steps.tampered.outputs.receipt-status }}
         run: |
           {
             echo "### Verification Receipt scoreboard"
             echo ""
             echo "| Fixture | Expected | Result |"
             echo "| --- | --- | --- |"
-            echo "| verified.json | PASS | ${{ steps.verified.outputs.passed }} (${{ steps.verified.outputs.receipt-status }}) |"
-            echo "| incomplete.json | FAIL | passed=${{ steps.incomplete.outputs.passed }} (${{ steps.incomplete.outputs.receipt-status }}) |"
-            echo "| tampered.json | FAIL | passed=${{ steps.tampered.outputs.passed }} (${{ steps.tampered.outputs.receipt-status }}) |"
+            echo "| verified.json | PASS | ${VERIFIED_PASSED} (${VERIFIED_RECEIPT_STATUS}) |"
+            echo "| incomplete.json | FAIL | passed=${INCOMPLETE_PASSED} (${INCOMPLETE_RECEIPT_STATUS}) |"
+            echo "| tampered.json | FAIL | passed=${TAMPERED_PASSED} (${TAMPERED_RECEIPT_STATUS}) |"
           } >> "$GITHUB_STEP_SUMMARY"

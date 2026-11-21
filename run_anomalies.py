@@ -13,12 +13,12 @@ found), mirroring the CLI's exit code 2. Standard library only.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import secrets
 import subprocess
 import sys
-
-_DELIM = "__DPROV_OUTPUT_EOF__"
 
 
 def resolve_candidate(env, run=subprocess.run):
@@ -63,11 +63,17 @@ def build_argv(env, candidate=None):
 
 
 def write_outputs(pairs, path):
+    """Append ``pairs`` to ``$GITHUB_OUTPUT`` with a random, collision-free delimiter."""
     if not path:
         return
     with open(path, "a", encoding="utf-8") as fh:
         for key, value in pairs:
-            fh.write(f"{key}<<{_DELIM}\n{value}\n{_DELIM}\n")
+            value = str(value)
+            lines = value.splitlines()
+            delimiter = f"__DPROV_{secrets.token_hex(16)}__"
+            while delimiter in lines:
+                delimiter = f"__DPROV_{secrets.token_hex(16)}__"
+            fh.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
 
 
 def _one_line(value):
@@ -77,17 +83,31 @@ def _one_line(value):
 
 
 def _cell(value):
-    """One-line, table-safe text for a markdown cell (escapes the column separator)."""
-    return _one_line(value).replace("|", "\\|")
+    """One-line, inert text for a Markdown table cell (no HTML, pipes, or code spans)."""
+    return html.escape(_one_line(value), quote=True).replace("|", "&#124;").replace("`", "&#96;")
+
+
+def _escape_data(value):
+    """Escape a workflow-command message (GitHub ``escapeData`` rules)."""
+    return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _escape_property(value):
+    """Escape a workflow-command property value (GitHub ``escapeProperty`` rules)."""
+    return _escape_data(value).replace(":", "%3A").replace(",", "%2C")
 
 
 def render_annotations(report):
-    """One GitHub ``::warning::`` annotation line per anomaly."""
-    return [
-        f"::warning title=DProvenanceKit anomaly ({_one_line(a.get('rule'))})::"
-        f"{_one_line(a.get('description'))}"
-        for a in report.get("anomalies", [])
-    ]
+    """One GitHub ``::warning::`` annotation line per anomaly.
+
+    Rule names and descriptions come from trace data, so both are escaped and
+    cannot terminate the command early or start a new workflow command.
+    """
+    lines = []
+    for anomaly in report.get("anomalies", []):
+        title = _escape_property(f"DProvenanceKit anomaly ({anomaly.get('rule')})")
+        lines.append(f"::warning title={title}::{_escape_data(anomaly.get('description'))}")
+    return lines
 
 
 def render_summary(report):
@@ -96,7 +116,7 @@ def render_summary(report):
     if not count:
         return "### DProvenanceKit anomaly rules\n\nNo anomalies detected.\n"
     rows = "\n".join(
-        f"| `{_one_line(a.get('rule'))}` | {_cell(a.get('description'))} |"
+        f"| {_cell(a.get('rule'))} | {_cell(a.get('description'))} |"
         for a in report.get("anomalies", [])
     )
     return (
@@ -104,6 +124,21 @@ def render_summary(report):
         f"{count} anomaly(ies) detected.\n\n"
         "| rule | detail |\n| --- | --- |\n" + rows + "\n"
     )
+
+
+def validate_report(report, returncode):
+    """Return an error message when the anomalies report cannot be trusted."""
+    if not isinstance(report, dict):
+        return "anomalies report must be a JSON object"
+    count = report.get("count", 0)
+    if type(count) is not int or count < 0:
+        return "anomalies report field 'count' must be a non-negative integer"
+    anomalies = report.get("anomalies", [])
+    if not isinstance(anomalies, list) or not all(isinstance(a, dict) for a in anomalies):
+        return "anomalies report field 'anomalies' must be a list of objects"
+    if returncode == 1 and count == 0:
+        return "anomalies command exited 1 (anomalies found) but reported count=0"
+    return None
 
 
 def main(env=None):
@@ -122,15 +157,25 @@ def main(env=None):
         return 2
 
     proc = subprocess.run(argv, capture_output=True, text=True)
-    # anomalies exit codes: 0 none, 1 found, 2 usage / config / not-found.
-    if proc.returncode == 2:
+    # anomalies exit codes: 0 none, 1 found, 2 usage / config / not-found. Any other
+    # status is treated as an error so enforcement fails closed.
+    if proc.returncode not in (0, 1):
         sys.stderr.write(proc.stderr)
+        if proc.returncode != 2:
+            print(
+                f"error: anomalies command exited with unexpected status {proc.returncode}",
+                file=sys.stderr,
+            )
         return 2
     try:
         report = json.loads(proc.stdout)
     except json.JSONDecodeError:
         sys.stderr.write(proc.stderr or proc.stdout)
         print("error: anomalies command did not emit a JSON report", file=sys.stderr)
+        return 2
+    error = validate_report(report, proc.returncode)
+    if error is not None:
+        print(f"error: {error}", file=sys.stderr)
         return 2
 
     write_outputs(

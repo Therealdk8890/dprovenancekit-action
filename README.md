@@ -15,15 +15,16 @@ server-less `dprovenancekit gate` CLI (**no hosted DProvenanceKit backend**).
 The receipt gate is **stdlib-only** and vendors Phase 0/1C golden vectors and
 schemas from
 [DProvenanceKit](https://github.com/Therealdk8890/DProvenanceKit) (evaluator
-aligned to Phase 1C `VerificationReceiptProjector`). This is an
-**attestation / provenance** gate — not an observability dashboard rival.
+aligned to Phase 1C `VerificationReceiptProjector`). It is an
+**attestation / provenance** gate that complements tracing and observability
+tools such as LangSmith or OpenTelemetry rather than replacing them.
 
 <!-- observability-contrast-quickstart -->
 ## 60-second proof — why not just observability?
 
-**Category:** path/provenance control complementary to LangSmith (not a dashboard rival).
+**Category:** decision-path / provenance control that complements LangSmith and OpenTelemetry.
 
-Sell the *failure*: the agent run looks successful, ordinary checkers stay green, and DPK is the one that goes red when `verify` is dropped.
+The demo agent run looks successful and the mock output, LLM-eval, and trace checks stay green, but the run skipped its required `verify` step. The DPK path gate and Verification Receipt gate both report that regression. The checks shown are local mocks written for this demo, not the real LangSmith or OpenTelemetry products.
 
 | Check | Baseline | Regressed (verify dropped) |
 | --- | --- | --- |
@@ -34,10 +35,10 @@ Sell the *failure*: the agent run looks successful, ordinary checkers stay green
 | **DPK Verification Receipt** | PASS | **FAIL (incomplete)** |
 
 1. Local: `pip install 'dprovenancekit==0.10.0' && python examples/observability-contrast/run_scoreboard.py`
-2. CI: **Actions → “Observability contrast demo”** — log shows mock PASSes, then DPK fails the job (that red X is the demo).
-3. Read [`examples/observability-contrast/`](examples/observability-contrast/) — founder one-pager + scoreboard.
+2. CI: **Actions → “Observability contrast demo”** — the log shows the mock checks passing and the DPK gates reporting `passed=false` on the regressed run; the workflow asserts that contrast and stays green.
+3. Read [`examples/observability-contrast/`](examples/observability-contrast/) — write-up + scoreboard.
 
-Crypto / Verification Receipt is the secondary evidence layer (same missing-`verify` story as attestation). Sister green meta-demo: [`examples/synthetic-regression/`](examples/synthetic-regression/). Deeper compare: [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
+The Verification Receipt is the secondary evidence layer for the same missing-`verify` case. Sister green meta-demo: [`examples/synthetic-regression/`](examples/synthetic-regression/). Deeper compare: [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
 
 <!-- /observability-contrast-quickstart -->
 
@@ -58,7 +59,10 @@ recorded path; it does not certify factual truth of the claim text.
 
 JSON Schema validates structure only. The Action recomputes status from
 integrity flags + invariant evaluation (`required_steps` / `must_include` /
-`ordering`) — it does not trust a receipt's `status` field blindly.
+`ordering`) — it does not trust a receipt's `status` field blindly. Only JSON
+`true` counts as a passing integrity flag, and an invariant that declares no
+constraints (or a malformed receipt/invariant) is rejected with an error
+instead of passing.
 
 ### Scoreboard (vendored fixtures from DPK Phase 1C)
 
@@ -119,11 +123,18 @@ it does not replace it.
 ## Recommended pins
 
 - **Action:** pin to a **commit SHA** (preferred for supply-chain review) or a
-  release tag such as `@v1.1.2` / `@v1`. Avoid floating `@main`.
+  release tag. Avoid floating `@main`.
   ```yaml
   uses: Therealdk8890/dprovenancekit-action@<commit-sha>   # preferred
-  # uses: Therealdk8890/dprovenancekit-action@v1          # floating major — OK for demos
+  # uses: Therealdk8890/dprovenancekit-action@v1          # floating major — path mode only, see below
   ```
+- **Release tags lag `main`:** the latest tag, `v1.1.2` (also `v1`), predates
+  `gate-mode: receipt`, the Regression Intelligence outputs, the
+  `dprovenancekit==0.10.0` default, and the recent security hardening. With
+  `@v1` / `@v1.1.2`, receipt-mode inputs are ignored (GitHub logs an
+  "Unexpected input" warning) and the path gate runs instead, failing on
+  missing path inputs. Until a newer release is tagged, pin a commit SHA from `main`
+  to use those features.
 - **PyPI package:** the Action default `install-spec` is
   **`dprovenancekit==0.10.0`** (core gate; crypto extra not required for gating).
   Override only for deliberate upgrades.
@@ -185,7 +196,7 @@ jobs:
 | `install-spec` | `dprovenancekit==0.10.0` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
 | `python-version` | `3.x` | Python to set up. |
 | `cloud-mode` | `off` | Customer **BYO** cloud ingest only: `off` \| `optional` \| `required`. There is **no** DProvenanceKit-hosted service. |
-| `cloud-url` | `""` | Customer-supplied cloud base URL. **Required** when `cloud-mode` is not `off` (fail closed if empty — no default host). |
+| `cloud-url` | `""` | Customer-supplied cloud base URL. **Required** when `cloud-mode` is not `off` (fail closed if empty — no default host). Must be `https://` (plain `http://` is accepted only for `localhost`). |
 | `cloud-api-key` | `""` | API key for BYO cloud ingestion. Pass it via a GitHub Actions secret, never a literal value. The action masks it before other steps run. |
 | `project-id` | `""` | Project ID for BYO cloud ingest. |
 | `promote-baseline` | `false` | If true and the gate passes, attempt BYO baseline promotion (still requires `cloud-url` + key + project). |
@@ -235,6 +246,9 @@ optional `cloud-*` inputs exist only so a customer can point the Action at
 - If you set `cloud-mode` to `optional` or `required`, you **must** also set
   `cloud-url` to your endpoint. An empty/missing URL **fails closed** (exit 1);
   the Action will not invent `https://api.dprovenance.dev` or any other host.
+- `cloud-url` must use `https://` because the API key is sent as a bearer
+  token; `http://` is accepted only for `localhost` / loopback testing, and
+  URLs with embedded credentials are rejected.
 - `optional` still skips on missing API key / project id / transport errors
   (warn only); `required` fails the job on those failures.
 

@@ -184,7 +184,7 @@ runs:
         PY
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -204,7 +204,7 @@ runs:
           echo "::error title=DProvenanceKit::db-path is required when gate-mode=path"
           exit 2
         fi
-        python "${{ github.action_path }}/run_gate.py"
+        python "$GITHUB_ACTION_PATH/run_gate.py"
       env:
         DPROV_DB: ${{ inputs.db-path }}
         DPROV_GOLDEN_DB: ${{ inputs.golden-db || inputs.db-path }}
@@ -229,7 +229,7 @@ runs:
       id: anomalies
       if: ${{ inputs.gate-mode != 'receipt' && inputs.anomaly-rules != '' }}
       shell: bash
-      run: python "${{ github.action_path }}/run_anomalies.py"
+      run: python "$GITHUB_ACTION_PATH/run_anomalies.py"
       env:
         DPROV_DB: ${{ inputs.db-path }}
         DPROV_CANDIDATE: ${{ inputs.candidate-run-id }}
@@ -240,7 +240,7 @@ runs:
       id: receipt
       if: ${{ inputs.gate-mode == 'receipt' }}
       shell: bash
-      run: python "${{ github.action_path }}/receipt_gate.py"
+      run: python "$GITHUB_ACTION_PATH/receipt_gate.py"
       env:
         DPROV_RECEIPT_PATH: ${{ inputs.receipt-path }}
         DPROV_INVARIANT_PATH: ${{ inputs.invariant-path }}
@@ -249,7 +249,7 @@ runs:
     - name: Comment on pull request (path gate)
       if: ${{ inputs.gate-mode != 'receipt' && inputs.comment == 'true' && github.event_name == 'pull_request' }}
       shell: bash
-      run: python "${{ github.action_path }}/pr_comment.py"
+      run: python "$GITHUB_ACTION_PATH/pr_comment.py"
       env:
         DPROV_REPORT_JSON: ${{ steps.gate.outputs.report-json }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -257,7 +257,7 @@ runs:
     - name: Comment on pull request (receipt gate)
       if: ${{ inputs.gate-mode == 'receipt' && inputs.comment == 'true' && github.event_name == 'pull_request' }}
       shell: bash
-      run: python "${{ github.action_path }}/receipt_pr_comment.py"
+      run: python "$GITHUB_ACTION_PATH/receipt_pr_comment.py"
       env:
         DPROV_REPORT_JSON: ${{ steps.receipt.outputs.report-json }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -265,20 +265,24 @@ runs:
     - name: Enforce gate
       if: ${{ inputs.gate-mode != 'receipt' && inputs.fail-on-regression == 'true' && steps.gate.outputs.passed != 'true' }}
       shell: bash
+      env:
+        DPROV_REGRESSION_LEVEL: ${{ steps.gate.outputs.regression-level }}
       run: |
-        echo "::error title=DProvenanceKit::Regression gate failed (severity: ${{ steps.gate.outputs.regression-level }})"
+        echo "::error title=DProvenanceKit::Regression gate failed (severity: ${DPROV_REGRESSION_LEVEL:-unknown})"
         exit 1
 
     - name: Enforce Verification Receipt gate
       if: ${{ inputs.gate-mode == 'receipt' && inputs.fail-on-receipt == 'true' && steps.receipt.outputs.passed != 'true' }}
       shell: bash
+      env:
+        DPROV_RECEIPT_STATUS: ${{ steps.receipt.outputs.receipt-status }}
       run: |
-        echo "::error title=DProvenanceKit::Verification Receipt gate failed (status: ${{ steps.receipt.outputs.receipt-status }})"
+        echo "::error title=DProvenanceKit::Verification Receipt gate failed (status: ${DPROV_RECEIPT_STATUS:-unknown})"
         exit 1
 
     - name: Upload artifacts
       if: ${{ always() && inputs.gate-mode != 'receipt' && inputs.upload-trace-database == 'true' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: dprovenancekit-reproduction
         path: |
@@ -289,6 +293,8 @@ runs:
     - name: Enforce anomaly rules
       if: ${{ inputs.gate-mode != 'receipt' && inputs.fail-on-anomaly == 'true' && steps.anomalies.outputs.anomaly-count != '' && steps.anomalies.outputs.anomaly-count != '0' }}
       shell: bash
+      env:
+        DPROV_ANOMALY_COUNT: ${{ steps.anomalies.outputs.anomaly-count }}
       run: |
-        echo "::error title=DProvenanceKit::${{ steps.anomalies.outputs.anomaly-count }} anomaly rule(s) fired"
+        echo "::error title=DProvenanceKit::${DPROV_ANOMALY_COUNT} anomaly rule(s) fired"
         exit 1

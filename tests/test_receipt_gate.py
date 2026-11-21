@@ -7,7 +7,6 @@ Phase 1C (main). Precedence: tampered > incomplete > verified.
 
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest

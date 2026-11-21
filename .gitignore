@@ -2,3 +2,10 @@ __pycache__/
 *.py[cod]
 smoke-traces.sqlite*
 demo-traces.sqlite*
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+*.sqlite-shm
+*.sqlite-wal

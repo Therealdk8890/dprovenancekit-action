@@ -1,10 +1,12 @@
 # Why not just observability?
 
-Your agent run looks successful. Output tests, LLM-evals, and OTel/LangSmith-style
-checks all stay green — HTTP 200, answer non-empty, “a trace exists.” Meanwhile the
-required **verify** decision step was dropped. That is the bug buyers actually fear.
-DProvenanceKit’s path gate (and Verification Receipt) fail with evidence. Keep
-LangSmith for dashboards; add DPK for path/provenance control. **Verified ≠ claim
+The demo agent run looks successful. Mock output tests, LLM-evals, and
+OTel/LangSmith-style checks all stay green — HTTP 200, answer non-empty, “a trace
+exists.” Meanwhile the required **verify** decision step was dropped.
+DProvenanceKit’s path gate (and Verification Receipt) report that regression with
+evidence. The checkers here are small local mocks written for this demo, not the
+real LangSmith or OpenTelemetry products; DPK is meant to run alongside those
+tools for path/provenance control. **Verified ≠ claim
 true** — cryptography protects integrity of a recorded path, not factual truth of
 the answer text.
 
@@ -21,11 +23,12 @@ the answer text.
 ## How to run (60 seconds)
 
 ```bash
-pip install 'dprovenancekit==0.7.0'
+pip install 'dprovenancekit==0.10.0'
 python examples/observability-contrast/run_scoreboard.py
 ```
 
-Or in CI: **Actions → “Observability contrast demo”**. The log prints mock PASSes,
-then DPK FAILs the job on the verify-dropped run — that red X *is* the demo.
+Or in CI: **Actions → “Observability contrast demo”**. The log prints the mock
+PASSes, then the DPK gates report `passed=false` on the verify-dropped run. The
+workflow asserts that contrast, so the job itself stays green.
 
 Sister fixture (path gate only, green meta-assert): [`../synthetic-regression/`](../synthetic-regression/).
