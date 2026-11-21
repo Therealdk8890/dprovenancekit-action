@@ -5,8 +5,8 @@ Runs mock output / LLM-eval / OTel-style checkers on baseline + regressed
 agent answers (all PASS), then DPK path gate + Verification Receipt gate
 (baseline PASS, regressed FAIL).
 
-Requires: pip install 'dprovenancekit==0.7.0' (same pin as the Action).
-Stdlib + that install-spec only — no paid SaaS.
+Requires: pip install 'dprovenancekit==0.10.0' (same pin as the Action default).
+Standard library plus that package only; no external services.
 
 Exit 0 when the contrast holds (mocks PASS on both; DPK FAIL only on
 regressed). Exit 1 if the demo itself is broken.
@@ -233,7 +233,7 @@ def main() -> int:
     )
     print("")
     print(
-        "Sell the failure: mocks stay green; DPK path gate + receipt catch the missing verify."
+        "Mock checks stay green; the DPK path gate and receipt gate flag the missing verify."
     )
     print(
         "Verified ≠ claim true. DPK is path/provenance control — complementary to LangSmith."

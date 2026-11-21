@@ -3,8 +3,8 @@
 Path-gate beachhead used by **Actions → “Synthetic regression demo”** (green meta-assert:
 matching candidate PASS, verify-dropped FAIL, job stays green).
 
-For the primary **observability-PASS / DPK-FAIL** killer demo (mocks green, DPK reds the job),
-see [`../observability-contrast/`](../observability-contrast/).
+For the primary **observability-PASS / DPK-FAIL** demo (mock checks pass, DPK gates
+flag the regression), see [`../observability-contrast/`](../observability-contrast/).
 
 The public, green demo that uses this same agent is:
 
