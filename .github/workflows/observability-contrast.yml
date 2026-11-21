@@ -25,7 +25,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install DPK (Action install-spec pin)
-        run: python -m pip install --disable-pip-version-check 'dprovenancekit==0.7.0'
+        run: python -m pip install --disable-pip-version-check 'dprovenancekit==0.10.0'
 
       - name: Record baseline + regressed traces
         run: python record_traces.py
@@ -63,9 +63,12 @@ jobs:
           comment: "false"
 
       - name: Assert baseline path gate passed
+        env:
+          PATH_OK_PASSED: ${{ steps.path_ok.outputs.passed }}
+          PATH_OK_REGRESSION_LEVEL: ${{ steps.path_ok.outputs.regression-level }}
         run: |
-          echo "passed=${{ steps.path_ok.outputs.passed }} level=${{ steps.path_ok.outputs.regression-level }}"
-          test "${{ steps.path_ok.outputs.passed }}" = "true"
+          echo "passed=${PATH_OK_PASSED} level=${PATH_OK_REGRESSION_LEVEL}"
+          test "${PATH_OK_PASSED}" = "true"
 
       - name: DPK Verification Receipt — verified fixture (must PASS)
         id: receipt_ok
@@ -76,10 +79,13 @@ jobs:
           comment: "false"
 
       - name: Assert verified receipt passed
+        env:
+          RECEIPT_OK_RECEIPT_STATUS: ${{ steps.receipt_ok.outputs.receipt-status }}
+          RECEIPT_OK_PASSED: ${{ steps.receipt_ok.outputs.passed }}
         run: |
-          echo "status=${{ steps.receipt_ok.outputs.receipt-status }} passed=${{ steps.receipt_ok.outputs.passed }}"
-          test "${{ steps.receipt_ok.outputs.passed }}" = "true"
-          test "${{ steps.receipt_ok.outputs.receipt-status }}" = "verified"
+          echo "status=${RECEIPT_OK_RECEIPT_STATUS} passed=${RECEIPT_OK_PASSED}"
+          test "${RECEIPT_OK_PASSED}" = "true"
+          test "${RECEIPT_OK_RECEIPT_STATUS}" = "verified"
 
       - name: DPK path gate — regressed / verify dropped (capture FAIL for scoreboard)
         id: path_bad
@@ -103,6 +109,14 @@ jobs:
           fail-on-receipt: "false"
 
       - name: Print five-row scoreboard (mocks PASS, DPK FAIL)
+        env:
+          PATH_OK_PASSED: ${{ steps.path_ok.outputs.passed }}
+          PATH_BAD_PASSED: ${{ steps.path_bad.outputs.passed }}
+          RECEIPT_OK_PASSED: ${{ steps.receipt_ok.outputs.passed }}
+          RECEIPT_OK_RECEIPT_STATUS: ${{ steps.receipt_ok.outputs.receipt-status }}
+          RECEIPT_BAD_PASSED: ${{ steps.receipt_bad.outputs.passed }}
+          RECEIPT_BAD_RECEIPT_STATUS: ${{ steps.receipt_bad.outputs.receipt-status }}
+          MOCKS_PASSED: ${{ steps.mocks.outputs.passed }}
         run: |
           {
             echo "### Observability-PASS / DPK-FAIL scoreboard"
@@ -112,17 +126,17 @@ jobs:
             echo "| Output test | PASS | PASS |"
             echo "| LLM eval | PASS | PASS |"
             echo "| Mock OTel/LangSmith-style | PASS | PASS |"
-            echo "| DPK path gate | ${{ steps.path_ok.outputs.passed }} | **${{ steps.path_bad.outputs.passed }}** (expect false) |"
-            echo "| DPK Verification Receipt | ${{ steps.receipt_ok.outputs.passed }} (${{ steps.receipt_ok.outputs.receipt-status }}) | **${{ steps.receipt_bad.outputs.passed }}** (${{ steps.receipt_bad.outputs.receipt-status }}) |"
+            echo "| DPK path gate | ${PATH_OK_PASSED} | **${PATH_BAD_PASSED}** (expect false) |"
+            echo "| DPK Verification Receipt | ${RECEIPT_OK_PASSED} (${RECEIPT_OK_RECEIPT_STATUS}) | **${RECEIPT_BAD_PASSED}** (${RECEIPT_BAD_RECEIPT_STATUS}) |"
             echo ""
             echo "Mocks stayed green. DPK caught the missing \`verify\`."
             echo "Verified ≠ claim true. Path/provenance control complements LangSmith."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          test "${{ steps.mocks.outputs.passed }}" = "true"
-          test "${{ steps.path_ok.outputs.passed }}" = "true"
-          test "${{ steps.receipt_ok.outputs.passed }}" = "true"
-          test "${{ steps.path_bad.outputs.passed }}" = "false"
-          test "${{ steps.receipt_bad.outputs.passed }}" = "false"
+          test "${MOCKS_PASSED}" = "true"
+          test "${PATH_OK_PASSED}" = "true"
+          test "${RECEIPT_OK_PASSED}" = "true"
+          test "${PATH_BAD_PASSED}" = "false"
+          test "${RECEIPT_BAD_PASSED}" = "false"
           python run_scoreboard.py
 
       - name: Confirm regression was caught (CI remains green)
