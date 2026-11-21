@@ -22,8 +22,10 @@ Does not affect ``gate-mode=path``.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import secrets
 import sys
 from dataclasses import asdict, dataclass
@@ -33,6 +35,7 @@ from typing import Any, Iterable, Mapping, Sequence
 # Canonical step types (do not expand).
 _STEP_TYPES = frozenset({"evidence", "extract", "verify", "claim"})
 _STATUSES = frozenset({"verified", "incomplete", "tampered"})
+_MARKDOWN_META = re.compile(r"([\\`*_{}\[\]()#+.!|>~-])")
 
 # Default vendored invariant relative to this file.
 _DEFAULT_INVARIANT = (
@@ -125,9 +128,11 @@ def integrity_passed(integrity: Mapping[str, Any] | None) -> tuple[bool, str | N
     """Return (ok, reason) from receipt integrity summary flags."""
     if not isinstance(integrity, Mapping):
         return False, "Receipt is missing integrity summary; treating as tampered."
-    evidence = bool(integrity.get("evidence"))
-    trace = bool(integrity.get("trace"))
-    files_unchanged = bool(integrity.get("files_unchanged"))
+    # Fail closed: only a JSON boolean ``true`` counts as a passing flag. Strings
+    # such as "false", numbers, or missing keys must never read as integrity OK.
+    evidence = integrity.get("evidence") is True
+    trace = integrity.get("trace") is True
+    files_unchanged = integrity.get("files_unchanged") is True
     if evidence and trace and files_unchanged:
         return True, None
     failed = []
@@ -187,6 +192,56 @@ def evaluate_receipt(
         receipt_status_field=declared_str,
         status_consistent=consistent,
     )
+
+
+def _is_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def validate_invariant(invariant: Any) -> str | None:
+    """Return an error message when ``invariant`` cannot be evaluated safely.
+
+    An invariant with no constraints would mark every receipt ``verified``, so it
+    is rejected (fail closed) instead of silently passing the gate.
+    """
+    if not isinstance(invariant, Mapping):
+        return "invariant must be a JSON object"
+    inv_id = invariant.get("id")
+    if not isinstance(inv_id, str) or not inv_id.strip():
+        return "invariant field 'id' must be a non-empty string"
+    for key in ("required_steps", "must_include"):
+        value = invariant.get(key, [])
+        if value is not None and not _is_string_list(value):
+            return f"invariant field {key!r} must be a list of strings"
+    ordering = invariant.get("ordering", [])
+    if ordering is not None:
+        if not isinstance(ordering, list) or not all(
+            isinstance(item, Mapping) for item in ordering
+        ):
+            return "invariant field 'ordering' must be a list of objects"
+    if not (
+        invariant.get("required_steps")
+        or invariant.get("must_include")
+        or invariant.get("ordering")
+    ):
+        return (
+            "invariant declares no required_steps, must_include, or ordering "
+            "constraints; refusing to evaluate (it would verify any receipt)"
+        )
+    return None
+
+
+def validate_receipt(receipt: Any) -> str | None:
+    """Return an error message when ``receipt`` is structurally unusable."""
+    if not isinstance(receipt, Mapping):
+        return "receipt must be a JSON object"
+    steps = receipt.get("steps", [])
+    if steps is not None and (
+        not isinstance(steps, list)
+        or not all(isinstance(step, Mapping) for step in steps)
+    ):
+        return "receipt field 'steps' must be a list of objects"
+    return None
 
 
 def parse_fail_statuses(raw: str | None) -> set[str]:
@@ -253,6 +308,29 @@ def render_outputs(result: EvaluationResult, passed: bool) -> list[tuple[str, st
     ]
 
 
+def safe_markdown(value: Any) -> str:
+    """Render receipt-derived text as inert, single-line Markdown/HTML."""
+    text = str(value).replace("\r", " ").replace("\n", " ")
+    return _MARKDOWN_META.sub(r"\\\1", html.escape(text, quote=True))
+
+
+def safe_code(value) -> str:
+    """Render receipt-derived text as a single inert Markdown code span."""
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("`", "'")
+    return f"`{text}`"
+
+
+def render_step_summary(result: EvaluationResult, passed: bool) -> str:
+    """Job-summary section; receipt-controlled text is escaped."""
+    return (
+        "### DProvenanceKit Verification Receipt gate\n\n"
+        f"- **Status:** {safe_code(result.status)}\n"
+        f"- **Invariant:** {safe_code(result.invariant_id)}\n"
+        f"- **Passed:** {str(passed).lower()}\n"
+        f"- **Reason:** {safe_markdown(result.reason)}\n"
+    )
+
+
 def resolve_invariant_path(env: Mapping[str, str]) -> Path:
     raw = (env.get("DPROV_INVARIANT_PATH") or "").strip()
     if raw:
@@ -281,9 +359,10 @@ def main(env: Mapping[str, str] | None = None) -> int:
         print(f"error: failed to load receipt/invariant: {exc}", file=sys.stderr)
         return 2
 
-    if not isinstance(receipt, dict) or not isinstance(invariant, dict):
-        print("error: receipt and invariant must be JSON objects", file=sys.stderr)
-        return 2
+    for error in (validate_receipt(receipt), validate_invariant(invariant)):
+        if error is not None:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
 
     result = evaluate_receipt(receipt, invariant)
     if not result.status_consistent:
@@ -298,15 +377,13 @@ def main(env: Mapping[str, str] | None = None) -> int:
     write_outputs(pairs, env.get("GITHUB_OUTPUT"))
 
     summary = next(v for k, v in pairs if k == "summary")
-    print(summary)
+    # Collapse newlines so receipt-controlled text cannot start a workflow
+    # command (``::...::``) on its own log line.
+    print(summary.replace("\r", " ").replace("\n", " "))
     step_summary = env.get("GITHUB_STEP_SUMMARY")
     if step_summary:
         with open(step_summary, "a", encoding="utf-8") as fh:
-            fh.write("### DProvenanceKit Verification Receipt gate\n\n")
-            fh.write(f"- **Status:** `{result.status}`\n")
-            fh.write(f"- **Invariant:** `{result.invariant_id}`\n")
-            fh.write(f"- **Passed:** `{str(passed).lower()}`\n")
-            fh.write(f"- **Reason:** {result.reason}\n")
+            fh.write(render_step_summary(result, passed))
 
     return 0
 
