@@ -41,5 +41,5 @@ def run_golden(claim: str = "loan-applicant-42") -> str:
 
 def run_regressed(claim: str = "loan-applicant-42") -> str:
     # Bug under demo: agent skips planning and verification.
-    docs = retrieve(claim)
+    retrieve(claim)  # still records the retrieval step
     return answer(claim)
