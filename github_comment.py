@@ -38,22 +38,31 @@ def github_api(method: str, url: str, token: str, payload: Any = None, *, user_a
         return resp.status, (json.loads(body) if body else None)
 
 
-def find_sticky_comment(comments: Any, marker: str) -> Mapping[str, Any] | None:
-    """Return the comment to update, preferring one authored by the Actions bot.
+_MAX_EDIT_ATTEMPTS = 5
 
-    Any participant can post a comment containing the hidden marker, so a
-    marker comment written by the GitHub Actions bot wins over others. When no
-    bot-authored comment exists (for example when ``github-token`` is a PAT),
-    the first marker comment is used and a failed edit falls back to posting.
+
+def sticky_comment_candidates(comments: Any, marker: str) -> list[Mapping[str, Any]]:
+    """Marker comments in edit-preference order: Actions-bot comments first.
+
+    Any participant can post a comment containing the hidden marker, so the
+    GitHub Actions bot's comments are tried first, then the rest (for example
+    comments written earlier with a PAT ``github-token``).
     """
     candidates = [
         c for c in (comments or [])
-        if isinstance(c, Mapping) and marker in (c.get("body") or "")
+        if isinstance(c, Mapping) and marker in (c.get("body") or "") and "id" in c
     ]
-    for comment in candidates:
+
+    def is_actions_bot(comment: Mapping[str, Any]) -> bool:
         user = comment.get("user") or {}
-        if user.get("login") == _ACTIONS_BOT_LOGIN and user.get("type") == "Bot":
-            return comment
+        return user.get("login") == _ACTIONS_BOT_LOGIN and user.get("type") == "Bot"
+
+    return sorted(candidates, key=lambda c: not is_actions_bot(c))
+
+
+def find_sticky_comment(comments: Any, marker: str) -> Mapping[str, Any] | None:
+    """Return the preferred marker comment, or ``None``."""
+    candidates = sticky_comment_candidates(comments, marker)
     return candidates[0] if candidates else None
 
 
@@ -88,8 +97,8 @@ def upsert_sticky_comment(body: str, marker: str, env: Mapping[str, str], api: A
     post_url = f"{api_url}/repos/{repo}/issues/{pr}/comments"
     try:
         _, comments = api("GET", comments_url, token)
-        existing = find_sticky_comment(comments, marker)
-        if existing is not None:
+        candidates = sticky_comment_candidates(comments, marker)[:_MAX_EDIT_ATTEMPTS]
+        for existing in candidates:
             try:
                 api(
                     "PATCH",
@@ -101,7 +110,7 @@ def upsert_sticky_comment(body: str, marker: str, env: Mapping[str, str], api: A
             except urllib.error.HTTPError as exc:
                 if exc.code not in _PERMISSION_CODES:
                     raise
-                # The marker comment belongs to someone else; post a fresh one.
+                # Not editable with this token (another author); try the next one.
         api("POST", post_url, token, {"body": body})
     except urllib.error.HTTPError as exc:
         if exc.code in _PERMISSION_CODES:

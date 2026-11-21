@@ -241,6 +241,16 @@ def validate_receipt(receipt: Any) -> str | None:
         or not all(isinstance(step, Mapping) for step in steps)
     ):
         return "receipt field 'steps' must be a list of objects"
+    integrity = receipt.get("integrity")
+    if isinstance(integrity, Mapping):
+        for key in ("evidence", "trace", "files_unchanged"):
+            if not isinstance(integrity.get(key), bool):
+                # Reject rather than reclassify: mapping a malformed flag to
+                # "tampered" could pass a job configured to fail only on
+                # "incomplete".
+                return f"receipt integrity flag {key!r} must be present and a JSON boolean"
+    elif integrity is not None:
+        return "receipt field 'integrity' must be an object"
     return None
 
 

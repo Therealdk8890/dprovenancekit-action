@@ -44,6 +44,20 @@ _EXPORT_REQUIRED_FIELDS = (
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects on requests that carry the BYO cloud API key.
+
+    urllib would otherwise resend the Authorization header to the redirect
+    target, which could be plain http or a different origin.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_CLOUD_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
+
 @dataclass
 class IngestResult:
     uploaded: bool
@@ -300,7 +314,7 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - scheme validated
+        with _CLOUD_OPENER.open(req, timeout=30) as resp:
             resp_body = json.loads(resp.read())
 
             if not isinstance(resp_body, dict) or "run_id" not in resp_body or "viewer_url" not in resp_body or "content_sha256" not in resp_body:
@@ -350,7 +364,7 @@ def promote_baseline(env, run_id):
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - scheme validated
+        with _CLOUD_OPENER.open(req, timeout=10) as resp:
             resp.read()
             print("Successfully promoted run to baseline.", file=sys.stderr)
             return True

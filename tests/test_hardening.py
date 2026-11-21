@@ -59,6 +59,20 @@ class TestReceiptFailsClosed(unittest.TestCase):
             out = Path(env["GITHUB_OUTPUT"])
             return code, out.read_text(encoding="utf-8") if out.exists() else ""
 
+    def test_malformed_integrity_flags_are_rejected_not_reclassified(self) -> None:
+        receipt = _load("incomplete.json")
+        receipt["integrity"]["evidence"] = "false"
+        self.assertIsNotNone(receipt_gate.validate_receipt(receipt))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "receipt.json"
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            env = {
+                "DPROV_RECEIPT_PATH": str(path),
+                "DPROV_FAIL_ON_RECEIPT_STATUSES": "incomplete",
+                "GITHUB_OUTPUT": str(Path(tmp) / "out"),
+            }
+            self.assertEqual(_quiet(receipt_gate.main, env), 2)
+
     def test_invariant_without_constraints_is_rejected(self) -> None:
         code, outputs = self._run_main(_load("verified.json"), {"id": "empty"})
         self.assertEqual(code, 2)
@@ -170,6 +184,13 @@ class TestRunGateFailsClosed(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 run_gate.validate_cloud_url(bad)
 
+    def test_cloud_requests_do_not_follow_redirects(self) -> None:
+        handler = run_gate._RefuseRedirects()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {}, "http://evil.test/"))
+        self.assertTrue(
+            any(isinstance(h, run_gate._RefuseRedirects) for h in run_gate._CLOUD_OPENER.handlers)
+        )
+
     def test_export_row_errors_do_not_echo_payload(self) -> None:
         with self.assertRaises(ValueError) as ctx:
             run_gate.normalize_export_event({"event_id": "e", "data": "SECRET-PAYLOAD"})
@@ -204,6 +225,28 @@ class TestStickyComment(unittest.TestCase):
             pr = _quiet(github_comment.upsert_sticky_comment, "body", self.MARKER, env, api)
         self.assertEqual(pr, 7)
         self.assertEqual(calls, ["GET", "PATCH", "POST"])
+
+    def test_edits_editable_marker_comment_instead_of_stacking(self) -> None:
+        calls = []
+
+        def api(method, url, token, payload=None):
+            calls.append((method, url.rsplit("/", 1)[-1]))
+            if method == "GET":
+                return 200, [
+                    {"id": 1, "body": self.MARKER, "user": {"login": "github-actions[bot]", "type": "Bot"}},
+                    {"id": 2, "body": self.MARKER, "user": {"login": "pat-user", "type": "User"}},
+                ]
+            if method == "PATCH" and url.endswith("/1"):
+                raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+            return 200, {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp) / "event.json"
+            event.write_text(json.dumps({"number": 3}), encoding="utf-8")
+            env = {"GITHUB_TOKEN": "t", "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "o/r"}
+            _quiet(github_comment.upsert_sticky_comment, "body", self.MARKER, env, api)
+        self.assertEqual([c[0] for c in calls], ["GET", "PATCH", "PATCH"])
+        self.assertEqual(calls[-1][1], "2")
 
     def test_github_api_rejects_non_https(self) -> None:
         with self.assertRaises(ValueError):
