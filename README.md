@@ -40,7 +40,7 @@ The synthetic example deliberately removes an instrumented `verify` step. Its ou
 
 The Verification Receipt is the secondary evidence layer for the same missing-`verify` case. Sister green meta-demo: [`examples/synthetic-regression/`](examples/synthetic-regression/).
 
-**Trust boundary:** The gate evaluates the events the application instruments. It does not prove capture completeness, the correctness of the AI answer, or that other tools would miss the regression. For a blocking required check, use a workflow with `fail-on-regression: true` (see **Actions → “Blocking regression proof”**); a green meta-test that asserts an expected negative verdict is not the same as a blocked PR.
+**Trust boundary:** The gate evaluates the events the application instruments. It does not prove capture completeness, the correctness of the AI answer, or that other tools would miss the regression. For a blocking required check, use a workflow with `fail-on-regression: true` (see **Actions → “Blocking regression proof”**; [recorded run](https://github.com/Therealdk8890/dprovenancekit-action/actions/runs/44997217501): control job passes, regression job blocked); a green meta-test that asserts an expected negative verdict is not the same as a blocked PR.
 
 <!-- /observability-contrast-quickstart -->
 

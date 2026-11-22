@@ -17,7 +17,7 @@ It does not establish that DPK captures uninstrumented behavior, that the baseli
 
 ## Required next acceptance tests
 
-1. **Blocking CI:** An isolated, manually triggered workflow (`.github/workflows/blocking-regression-proof.yml`) runs `fail-on-regression: true` on a missing required step alongside a matching-baseline control job. Record a run where the regression job exits nonzero and the control exits zero. Keep the existing green meta-test separately.
+1. **Blocking CI:** An isolated, manually triggered workflow (`.github/workflows/blocking-regression-proof.yml`) runs `fail-on-regression: true` on a missing required step alongside a matching-baseline control job. Recorded run on `main` at `6a73346` (2026-11-22, dprovenancekit 0.9.2): [44997217501](https://github.com/Therealdk8890/dprovenancekit-action/actions/runs/44997217501). `baseline-must-pass` succeeded and `regression-must-block` failed at the gate step with "Regression gate failed" after the candidate dropped the `plan.*` and `verify.*` steps. The engine reported severity `none` (it does not classify these steps as critical); the job blocked because `allow-divergent` is false and `max-level` is `none`. Keep the existing green meta-test separately.
 2. **Version reproducibility:** Pin the Python SDK and Action revision in the demonstration; record the exact commands, fixture digests, and CI run links.
 3. **Release-evidence contract:** Produce a versioned machine-readable record binding baseline/candidate identifiers, comparison policy and evaluator versions, findings, verdict, and artifact hashes. Define which fields are signed, and fail closed on malformed or mismatched bindings.
 4. **Cross-language parity:** Run the shared structural-alignment vectors against both production Swift and Python engines. Check exact verdicts, ordering, tie breaks, and negative/adversarial cases.
@@ -39,7 +39,7 @@ DPK complements LangSmith, Braintrust, Langfuse, and other observability/evaluat
 
 ## Release checklist
 
-- [ ] Real blocking red CI and passing green CI demonstrated
+- [x] Real blocking red CI and passing green CI demonstrated ([run](https://github.com/Therealdk8890/dprovenancekit-action/actions/runs/44997217501))
 - [ ] Exact action and SDK versions pinned
 - [ ] Versioned release-evidence schema specified
 - [ ] Positive and tampering/missing-field verifier tests
