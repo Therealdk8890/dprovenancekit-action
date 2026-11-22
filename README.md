@@ -20,25 +20,27 @@ aligned to Phase 1C `VerificationReceiptProjector`). It is an
 tools such as LangSmith or OpenTelemetry rather than replacing them.
 
 <!-- observability-contrast-quickstart -->
-## 60-second proof — why not just observability?
+## 60-second instrumented-path regression proof
 
-**Category:** decision-path / provenance control that complements LangSmith and OpenTelemetry.
+**Category:** Local release-assurance and provenance gate, complementary to observability and evaluation tools.
 
-The demo agent run looks successful and the mock output, LLM-eval, and trace checks stay green, but the run skipped its required `verify` step. The DPK path gate and Verification Receipt gate both report that regression. The checks shown are local mocks written for this demo, not the real LangSmith or OpenTelemetry products.
+The synthetic example deliberately removes an instrumented `verify` step. Its output/LLM-evaluation/OTel-style checks are **mocks**, not actual LangSmith, Braintrust, Langfuse, or production OpenTelemetry integrations. A passing mock does not show that those products cannot detect the regression; they support custom deterministic checks.
 
 | Check | Baseline | Regressed (verify dropped) |
 | --- | --- | --- |
-| Output test | PASS | PASS |
-| LLM eval | PASS | PASS |
-| Mock OTel/LangSmith-style | PASS | PASS |
+| Synthetic output test | PASS | PASS |
+| Mock LLM evaluation | PASS | PASS |
+| Mock OTel-style check | PASS | PASS |
 | **DPK path gate** | PASS | **FAIL** |
 | **DPK Verification Receipt** | PASS | **FAIL (incomplete)** |
 
 1. Local: `pip install 'dprovenancekit==0.10.0' && python examples/observability-contrast/run_scoreboard.py`
 2. CI: **Actions → “Observability contrast demo”** — the log shows the mock checks passing and the DPK gates reporting `passed=false` on the regressed run; the workflow asserts that contrast and stays green.
-3. Read [`examples/observability-contrast/`](examples/observability-contrast/) — write-up + scoreboard.
+3. Read [the synthetic example](examples/observability-contrast/) and [the evidence-based proof plan](docs/RELEASE_ASSURANCE_PROOF_PLAN.md).
 
-The Verification Receipt is the secondary evidence layer for the same missing-`verify` case. Sister green meta-demo: [`examples/synthetic-regression/`](examples/synthetic-regression/). Deeper compare: [DProvenanceKit vs LangSmith](https://dprovenance.dev/compare/dprovenancekit-vs-langsmith/).
+The Verification Receipt is the secondary evidence layer for the same missing-`verify` case. Sister green meta-demo: [`examples/synthetic-regression/`](examples/synthetic-regression/).
+
+**Trust boundary:** The gate evaluates the events the application instruments. It does not prove capture completeness, the correctness of the AI answer, or that other tools would miss the regression. For a blocking required check, use a workflow with `fail-on-regression: true` (see **Actions → “Blocking regression proof”**; [recorded run](https://github.com/Therealdk8890/dprovenancekit-action/actions/runs/44997217501): control job passes, regression job blocked); a green meta-test that asserts an expected negative verdict is not the same as a blocked PR.
 
 <!-- /observability-contrast-quickstart -->
 
