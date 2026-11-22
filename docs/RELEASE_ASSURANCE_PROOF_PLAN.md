@@ -53,13 +53,6 @@ Create a manifest with `python scripts/release_evidence.py create --baseline BAS
 
 **Trust boundary:** `--strict` means gate-report presence, local hash integrity, and verdict consistency. It **does not** verify a signature, trusted producer identity, gate-report provenance, policy content or completeness. Do not describe this as signed evidence or an authenticated release decision. A future signed envelope and pinned trust root are separate acceptance gates.
 
-## Ed25519 signing (experimental)
+## Signing
 
-Install `cryptography>=42,<47` (optional; the gate itself does not need it). After creating and strictly validating the manifest, run:
-
-```sh
-python scripts/signed_release_evidence.py sign manifest.json --private-key /secure/keys/signing.pem --output manifest.sig.json
-python scripts/signed_release_evidence.py verify manifest.json --signature manifest.sig.json --trusted-public-key /trusted/keys/release.pem
-```
-
-The trusted public key **must** come from an independent trusted channel, never from the untrusted bundle. Keep the private key outside the repository and CI logs. Ed25519 authenticates exact manifest bytes and the verifier then checks the local artifact hashes and gate verdict. It does not prove the original capture is truthful, the policy is correct, or the agent is contained. Key rotation, revocation, a canonical cross-language envelope, and production key custody remain future work.
+Signing is not part of this release. The unsigned manifest above only proves local hash consistency: anyone who can rewrite an artifact can also rewrite its digest. Authenticated release evidence (likely keyless signing through GitHub OIDC/Sigstore) is tracked separately and remains a future acceptance gate.
