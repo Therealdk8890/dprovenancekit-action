@@ -21,16 +21,27 @@ FORMAT = "dpk-release-evidence-v1"
 MAX_BYTES = 100 * 1024 * 1024
 
 
-def sha256(path: Path) -> str:
+def read_regular(path: Path) -> bytes:
+    """Read a regular, non-symlink file within the size limit."""
     if not path.is_file() or path.is_symlink():
         raise ValueError("artifact must be a regular, non-symlink file")
     if path.stat().st_size > MAX_BYTES:
         raise ValueError("artifact exceeds size limit")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    data = path.read_bytes()
+    if len(data) > MAX_BYTES:
+        raise ValueError("artifact exceeds size limit")
+    return data
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(read_regular(path)).hexdigest()
+
+
+def _gate_verdict(data: bytes) -> str:
+    report = json.loads(data.decode("utf-8"))
+    if not isinstance(report, dict) or type(report.get("passed")) is not bool:
+        raise ValueError("gate report requires a boolean passed field")
+    return "pass" if report["passed"] else "block"
 
 
 def create(args: argparse.Namespace) -> None:
@@ -67,14 +78,13 @@ def create(args: argparse.Namespace) -> None:
             raise ValueError("gate report must be named gate-report.json at manifest root")
         if report_relative in {entry["path"] for entry in entries}:
             raise ValueError("gate report must not duplicate an artifact")
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        if not isinstance(report, dict) or type(report.get("passed")) is not bool:
-            raise ValueError("gate report requires a boolean passed field")
-        expected = "pass" if report["passed"] else "block"
+        # Hash and parse the same bytes so the bound digest matches the verdict.
+        report_bytes = read_regular(report_path)
+        expected = _gate_verdict(report_bytes)
         if args.verdict and args.verdict != expected:
-            raise ValueError("supplied verdict conflicts with gate report")
+            raise ValueError("--verdict conflicts with gate report")
         verdict = expected
-        entries.append({"path": report_relative, "sha256": sha256(report_path)})
+        entries.append({"path": report_relative, "sha256": hashlib.sha256(report_bytes).hexdigest()})
     else:
         verdict = args.verdict
         if not verdict:
@@ -91,7 +101,7 @@ def create(args: argparse.Namespace) -> None:
 
 
 def verify(path: Path, *, strict: bool = False) -> None:
-    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest = json.loads(read_regular(path).decode("utf-8"))
     if not isinstance(manifest, dict) or set(manifest) != {
         "format", "baseline", "candidate", "policy", "verdict", "artifacts"
     }:
@@ -105,6 +115,7 @@ def verify(path: Path, *, strict: bool = False) -> None:
     if not isinstance(entries, list) or not entries:
         raise ValueError("at least one artifact is required")
     seen = set()
+    gate_bytes = None
     root = path.resolve().parent
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
@@ -122,20 +133,17 @@ def verify(path: Path, *, strict: bool = False) -> None:
         target = root.joinpath(*parts)
         if target.is_symlink() or not target.resolve().is_relative_to(root):
             raise ValueError("artifact escapes manifest directory")
-        if sha256(target) != digest:
+        data = read_regular(target)
+        if hashlib.sha256(data).hexdigest() != digest:
             raise ValueError(f"artifact hash mismatch: {rel}")
+        if rel == "gate-report.json":
+            gate_bytes = data
     # If a gate report is declared, bind its semantic verdict as well as bytes.
-    gate_entries = [entry for entry in entries if entry["path"] == "gate-report.json"]
-    if strict and not gate_entries:
+    # The verdict is parsed from the exact bytes that were hash-checked above.
+    if strict and gate_bytes is None:
         raise ValueError("strict verification requires gate-report.json")
-    if gate_entries:
-        gate_path = root / "gate-report.json"
-        report = json.loads(gate_path.read_text(encoding="utf-8"))
-        if not isinstance(report, dict) or type(report.get("passed")) is not bool:
-            raise ValueError("invalid gate report")
-        if manifest["verdict"] != ("pass" if report["passed"] else "block"):
-            raise ValueError("gate verdict mismatch")
-
+    if gate_bytes is not None and manifest["verdict"] != _gate_verdict(gate_bytes):
+        raise ValueError("gate verdict mismatch")
 
 
 def main() -> int:

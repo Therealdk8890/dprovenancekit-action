@@ -1,4 +1,8 @@
-"""Ed25519 evidence signature acceptance and tamper tests."""
+"""Ed25519 evidence signature acceptance and tamper tests.
+
+Requires the optional ``cryptography`` package; skipped when it is not installed
+so the core suite stays standard-library only.
+"""
 import importlib.util
 import json
 import sys
@@ -7,15 +11,20 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+HAVE_CRYPTOGRAPHY = importlib.util.find_spec("cryptography") is not None
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-from release_evidence import create
-from signed_release_evidence import sign, verify
+if HAVE_CRYPTOGRAPHY:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+    sys.path.insert(0, str(SCRIPTS))
+    from release_evidence import create
+    from signed_release_evidence import sign, verify
 
 
+@unittest.skipUnless(HAVE_CRYPTOGRAPHY, "cryptography is not installed")
 class SignedEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -49,7 +58,7 @@ class SignedEvidenceTests(unittest.TestCase):
         data = json.loads(self.manifest.read_text())
         data["candidate"] = "different"
         self.manifest.write_text(json.dumps(data))
-        with self.assertRaises(Exception):
+        with self.assertRaises(InvalidSignature):
             verify(self.manifest, self.signature, self.public)
 
     def test_tampered_artifact_rejected(self):
@@ -62,14 +71,14 @@ class SignedEvidenceTests(unittest.TestCase):
         self.public.write_bytes(other.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo))
-        with self.assertRaises(Exception):
+        with self.assertRaises(InvalidSignature):
             verify(self.manifest, self.signature, self.public)
 
     def test_tampered_signature_rejected(self):
         data = json.loads(self.signature.read_text())
         data["signature"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
         self.signature.write_text(json.dumps(data))
-        with self.assertRaises(Exception):
+        with self.assertRaises(InvalidSignature):
             verify(self.manifest, self.signature, self.public)
 
 

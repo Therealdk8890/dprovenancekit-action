@@ -24,13 +24,17 @@ SCHEMA = "dpk-release-evidence-signature-v1"
 
 
 def sign(manifest: Path, private_key_path: Path, output: Path) -> None:
-    verify_manifest(manifest, strict=True)
+    """Sign the exact manifest bytes with an Ed25519 key loaded from a PEM file."""
     if output.resolve() == manifest.resolve():
         raise ValueError("signature output must not overwrite manifest")
+    data = manifest.read_bytes()
+    verify_manifest(manifest, strict=True)
+    if manifest.read_bytes() != data:
+        raise ValueError("manifest changed during verification")
     private_key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
     if not isinstance(private_key, Ed25519PrivateKey):
         raise ValueError("expected Ed25519 private key")
-    signature = private_key.sign(manifest.read_bytes())
+    signature = private_key.sign(data)
     envelope = {"format": SCHEMA, "algorithm": "Ed25519", "signature": base64.b64encode(signature).decode("ascii")}
     output.write_text(json.dumps(envelope, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
@@ -45,11 +49,16 @@ def verify(manifest: Path, signature_path: Path, trusted_public_key_path: Path) 
         raise ValueError("invalid signature envelope")
     if envelope["format"] != SCHEMA or envelope["algorithm"] != "Ed25519":
         raise ValueError("unsupported signature format")
+    if not isinstance(envelope["signature"], str):
+        raise ValueError("invalid signature encoding")
     raw = base64.b64decode(envelope["signature"], validate=True)
     if len(raw) != 64:
         raise ValueError("invalid signature length")
-    public_key.verify(raw, manifest.read_bytes())
+    data = manifest.read_bytes()
+    public_key.verify(raw, data)
     verify_manifest(manifest, strict=True)
+    if manifest.read_bytes() != data:
+        raise ValueError("manifest changed during verification")
 
 
 def main() -> int:
