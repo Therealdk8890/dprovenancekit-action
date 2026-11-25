@@ -6,6 +6,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from release_evidence import read_regular, verify
@@ -18,13 +19,19 @@ def check(manifest: Path, bundle: Path, *, identity: str, issuer: str,
     # Verify the exact bytes later interpreted by the local verifier.
     # Caller must ensure bundle directory is not concurrently writable.
     original = read_regular(manifest)
-    read_regular(bundle)
-    subprocess.run(
-        ["cosign", "verify-blob", "--bundle", str(bundle.resolve()),
-         "--certificate-identity", identity, "--certificate-oidc-issuer", issuer,
-         str(manifest.resolve())],
-        check=True, timeout=120,
-    )
+    bundle_bytes = read_regular(bundle)
+    # Authenticate private snapshots, not attacker-replaceable input paths.
+    with tempfile.TemporaryDirectory(prefix="dpk-evidence-") as directory:
+        snapshot = Path(directory) / "manifest.json"
+        signature = Path(directory) / "bundle.json"
+        snapshot.write_bytes(original)
+        signature.write_bytes(bundle_bytes)
+        subprocess.run(
+            ["cosign", "verify-blob", "--bundle", str(signature),
+             "--certificate-identity", identity, "--certificate-oidc-issuer", issuer,
+             str(snapshot)],
+            check=True, timeout=120,
+        )
     if read_regular(manifest) != original:
         raise ValueError("manifest changed during signature verification")
     verify(manifest, strict=True)
