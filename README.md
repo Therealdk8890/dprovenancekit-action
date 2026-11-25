@@ -34,7 +34,7 @@ The synthetic example deliberately removes an instrumented `verify` step. Its ou
 | **DPK path gate** | PASS | **FAIL** |
 | **DPK Verification Receipt** | PASS | **FAIL (incomplete)** |
 
-1. Local: `pip install 'dprovenancekit==0.10.0' && python examples/observability-contrast/run_scoreboard.py`
+1. Local: `pip install 'dprovenancekit==0.11.0' && python examples/observability-contrast/run_scoreboard.py`
 2. CI: **Actions → “Observability contrast demo”** — the log shows the mock checks passing and the DPK gates reporting `passed=false` on the regressed run; the workflow asserts that contrast and stays green.
 3. Read [the synthetic example](examples/observability-contrast/) and [the evidence-based proof plan](docs/RELEASE_ASSURANCE_PROOF_PLAN.md).
 
@@ -135,7 +135,7 @@ it does not replace it.
   Intelligence outputs, and the `dprovenancekit==0.10.0` default. `v1.1.2` and
   earlier support path mode only.
 - **PyPI package:** the Action default `install-spec` is
-  **`dprovenancekit==0.10.0`** (core gate; crypto extra not required for gating).
+  **`dprovenancekit==0.11.0`** (core gate; crypto extra not required for gating).
   Override only for deliberate upgrades.
 
 ## Usage
@@ -167,7 +167,7 @@ jobs:
           candidate-context: candidate  # (or pass golden-run-id / candidate-run-id)
           max-level: none          # strict: any divergence fails
           # allow-divergent: true  # tolerate per-step changes, gate only on severity
-          # install-spec: dprovenancekit==0.10.0   # already the Action default
+          # install-spec: dprovenancekit==0.11.0   # already the Action default
 ```
 
 ## Inputs
@@ -192,7 +192,7 @@ jobs:
 | `comment` | `true` | Post a sticky summary comment on the PR. |
 | `anomaly-rules` | `""` | Path to a JSON rules config. When set, runs the out-of-the-box anomaly rules over the candidate run. |
 | `fail-on-anomaly` | `false` | Fail the job when an anomaly rule fires. |
-| `install-spec` | `dprovenancekit==0.10.0` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
+| `install-spec` | `dprovenancekit==0.11.0` | pip requirement to install the gate from (pin a version or point at a VCS URL). |
 | `python-version` | `3.x` | Python to set up. |
 | `cloud-mode` | `off` | Customer **BYO** cloud ingest only: `off` \| `optional` \| `required`. There is **no** DProvenanceKit-hosted service. |
 | `cloud-url` | `""` | Customer-supplied cloud base URL. **Required** when `cloud-mode` is not `off` (fail closed if empty — no default host). Must be `https://` (plain `http://` is accepted only for `localhost`). |

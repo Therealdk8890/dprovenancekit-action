@@ -23,7 +23,7 @@ the answer text.
 ## How to run (60 seconds)
 
 ```bash
-pip install 'dprovenancekit==0.10.0'
+pip install 'dprovenancekit==0.11.0'
 python examples/observability-contrast/run_scoreboard.py
 ```
 

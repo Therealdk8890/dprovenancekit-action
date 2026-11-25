@@ -8,7 +8,7 @@ The Action's scripts use the Python standard library only. The path gate also
 needs the `dprovenancekit` package that `install-spec` installs at run time.
 
 ```bash
-python -m pip install 'dprovenancekit==0.10.0'   # only needed for path-mode demos
+python -m pip install 'dprovenancekit==0.11.0'   # only needed for path-mode demos
 python -m compileall -q .
 python -m unittest discover -s tests -v
 ```

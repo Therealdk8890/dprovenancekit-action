@@ -5,7 +5,7 @@ Runs mock output / LLM-eval / OTel-style checkers on baseline + regressed
 agent answers (all PASS), then DPK path gate + Verification Receipt gate
 (baseline PASS, regressed FAIL).
 
-Requires: pip install 'dprovenancekit==0.10.0' (same pin as the Action default).
+Requires: pip install 'dprovenancekit==0.11.0' (same pin as the Action default).
 Standard library plus that package only; no external services.
 
 Exit 0 when the contrast holds (mocks PASS on both; DPK FAIL only on
