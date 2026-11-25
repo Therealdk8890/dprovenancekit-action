@@ -1,5 +1,9 @@
 # DProvenanceKit regression gate — GitHub Action
 
+[![smoke](https://github.com/Therealdk8890/dprovenancekit-action/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/Therealdk8890/dprovenancekit-action/actions/workflows/smoke.yml)
+[![Release evidence verifier tests](https://github.com/Therealdk8890/dprovenancekit-action/actions/workflows/release-evidence-tests.yml/badge.svg?branch=main)](https://github.com/Therealdk8890/dprovenancekit-action/actions/workflows/release-evidence-tests.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 DProvenanceKit records each AI agent execution as a queryable, diffable trace.
 This action gates your pull requests on that record in two complementary modes:
 
