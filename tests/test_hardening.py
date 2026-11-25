@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import subprocess
@@ -255,3 +256,12 @@ class TestStickyComment(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GateReportUploadTests(unittest.TestCase):
+    def test_uploaded_report_is_exactly_the_bytes_behind_its_digest(self) -> None:
+        report = {"passed": False, "drift": [{"step": "verify", "kind": "missing"}], "note": "é"}
+        serialized, digest = run_gate.gate_report_fields(report)
+        self.assertEqual(serialized, json.dumps(report))  # unchanged serialization
+        self.assertEqual(digest, hashlib.sha256(serialized.encode("utf-8")).hexdigest())
+        self.assertEqual(json.loads(serialized), report)
