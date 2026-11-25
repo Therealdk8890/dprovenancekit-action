@@ -211,6 +211,16 @@ def write_outputs(pairs, path):
             fh.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
 
 
+def gate_report_fields(report) -> tuple[str, str]:
+    """Serialized gate report and its SHA-256, exactly as uploaded.
+
+    The serialization is unchanged from earlier releases, so gate_report_sha256 values
+    stay comparable across versions.
+    """
+    serialized = json.dumps(report)
+    return serialized, hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def ingest_run(env, db_path, run_id, report) -> IngestResult:
     cloud_mode = env.get("DPROV_CLOUD_MODE", "off").lower()
     if cloud_mode not in {"off", "optional", "required"}:
@@ -278,7 +288,7 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
 
         context_id = events[0].get("context_id", "unknown")
 
-        gate_report_sha256 = hashlib.sha256(json.dumps(report).encode("utf-8")).hexdigest()
+        gate_report_json, gate_report_sha256 = gate_report_fields(report)
 
         run_metadata = {
             "client_run_id": run_id,
@@ -305,7 +315,11 @@ def ingest_run(env, db_path, run_id, report) -> IngestResult:
             "project_id": project_id,
             "run": run_metadata,
             "events": events,
-            "artifacts": artifacts
+            "artifacts": artifacts,
+            # Exact bytes behind gate_report_sha256, so the server can store the report
+            # (e.g. for EU AI Act Article 12 evidence). Servers that predate this field
+            # ignore it.
+            "gate_report_json": gate_report_json,
         }
 
         req = urllib.request.Request(  # noqa: S310 - scheme validated
