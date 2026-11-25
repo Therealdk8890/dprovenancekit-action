@@ -19,4 +19,6 @@ jobs:
         with:
           python-version: "3.11"
       - name: Verify positive, tamper, and trust-boundary tests
-        run: python -m unittest discover -s tests -p "test_release_evidence.py" -v
+        run: python -m unittest discover -s tests -p "test_*evidence.py" -v
+      - name: Compile evidence verifier modules
+        run: python -m compileall -q scripts/release_evidence.py scripts/verify_authenticated_evidence.py
