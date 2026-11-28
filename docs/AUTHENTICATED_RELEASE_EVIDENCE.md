@@ -38,3 +38,7 @@ Unit tests mock Cosign and do not establish cryptographic interoperability.
 Do not grant OIDC signing permission to untrusted pull-request code.
 A signature authenticates evidence bytes, not capture completeness, semantic
 correctness, policy adequacy, or runtime containment.
+
+## Synthetic interoperability test
+
+The branch-only synthetic Sigstore workflow signs public fixture manifests using GitHub OIDC and verifies them in a separate job without signing permission. Cosign v3.1.6 is pinned by the SHA-256 of its Linux binary. The exact test branch and workflow identity is deliberately distinct from any release signer. Never add it to production trust configuration. No release or deployment occurs, and this workflow never runs on pull requests. Passing this test establishes interoperability for these fixtures, not a production signing policy.

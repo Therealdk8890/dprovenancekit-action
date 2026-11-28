@@ -1,0 +1,119 @@
+name: Synthetic Sigstore interoperability
+# Test-only signer. Never configure this branch identity as a release trust root.
+# No pull_request or pull_request_target trigger, no deployment or publishing.
+on:
+  push:
+    branches: [fix/authenticated-evidence-release-gate]
+permissions:
+  contents: read
+jobs:
+  sign-fixtures:
+    if: github.repository == 'Therealdk8890/dprovenancekit-action' && github.ref == 'refs/heads/fix/authenticated-evidence-release-gate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Install exact Cosign binary and verify digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cosign-bin"
+          curl --fail --silent --show-error --location --proto '=https' \
+            https://github.com/sigstore/cosign/releases/download/v3.1.6/cosign-linux-amd64 \
+            -o "$RUNNER_TEMP/cosign-bin/cosign"
+          echo "318a99ade4156a0c4113aa983b46c0a0830fa7896a096c63121ee47b610a94c6  $RUNNER_TEMP/cosign-bin/cosign" | sha256sum --check
+          chmod 0755 "$RUNNER_TEMP/cosign-bin/cosign"
+          echo "$RUNNER_TEMP/cosign-bin" >> "$GITHUB_PATH"
+      - name: Sign public synthetic pass and block fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          for verdict in pass block; do
+            dir="synthetic/$verdict"
+            mkdir -p "$dir"
+            printf '{"synthetic":true}\n' > "$dir/trace.json"
+            if [ "$verdict" = pass ]; then passed=true; else passed=false; fi
+            printf '{"passed":%s}\n' "$passed" > "$dir/gate-report.json"
+            python scripts/release_evidence.py create --baseline synthetic-baseline \
+              --candidate "$GITHUB_SHA" --policy synthetic-test-only \
+              --artifact "$dir/trace.json" --gate-report "$dir/gate-report.json" \
+              --output "$dir/manifest.json"
+            cosign sign-blob --yes --bundle "$dir/manifest.sigstore.json" "$dir/manifest.json"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: synthetic-sigstore-fixtures
+          path: synthetic/
+          if-no-files-found: error
+          retention-days: 7
+  verify-fixtures:
+    needs: sign-fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Install exact Cosign binary and verify digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cosign-bin"
+          curl --fail --silent --show-error --location --proto '=https' \
+            https://github.com/sigstore/cosign/releases/download/v3.1.6/cosign-linux-amd64 \
+            -o "$RUNNER_TEMP/cosign-bin/cosign"
+          echo "318a99ade4156a0c4113aa983b46c0a0830fa7896a096c63121ee47b610a94c6  $RUNNER_TEMP/cosign-bin/cosign" | sha256sum --check
+          chmod 0755 "$RUNNER_TEMP/cosign-bin/cosign"
+          echo "$RUNNER_TEMP/cosign-bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: synthetic-sigstore-fixtures
+          path: synthetic
+      - name: Verify real signatures and reject tamper and identity mismatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity='https://github.com/Therealdk8890/dprovenancekit-action/.github/workflows/synthetic-sigstore.yml@refs/heads/fix/authenticated-evidence-release-gate'
+          issuer='https://token.actions.githubusercontent.com'
+          verify() {
+            local dir="$1"; shift
+            python scripts/verify_authenticated_evidence.py "$dir/manifest.json" \
+              --bundle "$dir/manifest.sigstore.json" \
+              --identity "$identity" --issuer "$issuer" \
+              --baseline synthetic-baseline --candidate "$GITHUB_SHA" \
+              --policy synthetic-test-only "$@"
+          }
+          reject() {
+            if "$@"; then echo "Unexpected acceptance: $*" >&2; exit 1; fi
+          }
+          verify synthetic/pass --require-pass
+          verify synthetic/block
+          reject verify synthetic/block --require-pass
+          reject verify synthetic/pass --require-pass --identity "$identity.invalid"
+          reject verify synthetic/pass --require-pass --issuer https://invalid.example
+          reject verify synthetic/pass --require-pass --candidate wrong-commit
+          reject verify synthetic/pass --require-pass --baseline wrong-baseline
+          reject verify synthetic/pass --require-pass --policy wrong-policy
+          cp -a synthetic/pass synthetic/tampered-manifest
+          printf '\n' >> synthetic/tampered-manifest/manifest.json
+          reject verify synthetic/tampered-manifest --require-pass
+          cp -a synthetic/pass synthetic/tampered-artifact
+          printf '\n' >> synthetic/tampered-artifact/trace.json
+          reject verify synthetic/tampered-artifact --require-pass
+          cp -a synthetic/pass synthetic/tampered-bundle
+          printf '{}' > synthetic/tampered-bundle/manifest.sigstore.json
+          reject verify synthetic/tampered-bundle --require-pass
+          verify synthetic/pass --require-pass
