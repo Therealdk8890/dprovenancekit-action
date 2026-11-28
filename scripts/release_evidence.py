@@ -101,7 +101,12 @@ def create(args: argparse.Namespace) -> None:
 
 
 def verify(path: Path, *, strict: bool = False) -> None:
-    manifest = json.loads(read_regular(path).decode("utf-8"))
+    verify_manifest_bytes(read_regular(path), path.resolve().parent, strict=strict)
+
+
+def verify_manifest_bytes(data: bytes, root: Path, *, strict: bool = False) -> None:
+    """Verify artifacts against the exact supplied manifest bytes."""
+    manifest = json.loads(data.decode("utf-8"))
     if not isinstance(manifest, dict) or set(manifest) != {
         "format", "baseline", "candidate", "policy", "verdict", "artifacts"
     }:
@@ -116,7 +121,7 @@ def verify(path: Path, *, strict: bool = False) -> None:
         raise ValueError("at least one artifact is required")
     seen = set()
     gate_bytes = None
-    root = path.resolve().parent
+    root = root.resolve()
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
             raise ValueError("invalid artifact entry")
